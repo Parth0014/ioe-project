@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard · GridScope</title><link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/dashboard.css">
+<script src="/static/dashboard.js" defer></script>
+</head><body><a class="skip-link" href="#dashboard-heading">Skip to content</a>
+<div class="wrap">
+<header class="app-header">
+<a class="brand" href="#dashboard" aria-label="GridScope dashboard"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M8 9h11v9h9M8 27h11v-9M8 18h11"/><circle cx="8" cy="9" r="3"/><circle cx="8" cy="18" r="3"/><circle cx="8" cy="27" r="3"/><circle cx="28" cy="18" r="3"/></svg><span>GridScope<small>Energy monitor</small></span></a>
+<nav class="view-nav" aria-label="Main navigation"><a href="#dashboard" id="nav-dashboard" aria-current="page">Dashboard</a><a href="#debugging" id="nav-debugging">Debugging</a></nav>
+<div class="header-actions"><div class="pill off" id="pDev"><i class="dot"></i><span>Connecting</span></div><a class="export-link" href="/api/export.csv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg>Export data</a></div>
+</header>
+<main>
+<div class="banner" id="sim" hidden>Simulation mode. The readings and room illumination are based on simulated data.</div>
+<section id="debug-screen" aria-labelledby="debug-heading" hidden>
+<h2 class="screen-title" id="debug-heading" tabindex="-1">Developer debugging</h2>
+<p class="screen-intro">Connection checks, device health and the data received by the server.</p>
+<div class="debug-meta"><div class="pill off" id="pCloud"><i class="dot"></i><span>Cloud</span></div><div class="pill" id="pSrc"><i class="dot"></i><span>Source</span></div></div>
+<div class="note" id="connection-detail" role="status" style="margin-bottom:14px"></div>
+<section class="card debug" id="network-debug" aria-label="Connection diagnostics">
+<h2>Connection check <span id="scan-phase" class="debug-status" role="status">Starting</span></h2>
+<p>Python checks the configured address ranges and ports. Live readings are shown on the Dashboard screen.</p>
+<div class="note" id="scan-summary">Preparing scan...</div>
+<progress id="scan-progress" value="0" max="1" aria-label="Address scan progress"></progress>
+<div id="device-status" class="debug-status"></div>
+<details open><summary>Recent address checks</summary><div class="scan-log"><table><thead><tr><th>Address</th><th>Result</th><th>Time</th><th>Details</th></tr></thead><tbody id="scan-results"></tbody></table></div></details>
+<p>If nothing responds: connect the laptop to <b>GridScope-Setup</b> (password <b>GridScope123</b>). The ESP is at <code>192.168.50.1</code> on ports <code>80, 8080, 8081</code>. Python retries automatically.</p>
+</section>
+<section class="card debug" aria-label="Device data"><h2>Device data</h2><h3>Health response</h3><pre id="device-response">No device response yet</pre><h3>Last sensor packet</h3><code id="raw-packet">No sensor packet yet</code></section>
+<section class="card debug" aria-label="Full server response"><h2>Full server response</h2><p>The latest dashboard API response, including measurement flags, settings, totals and history.</p><pre class="debug-state" id="api-response">Waiting for server response...</pre></section>
+</section>
+<section id="dashboard-screen" aria-labelledby="dashboard-heading">
+<div class="page-heading"><div><p class="eyebrow">Your energy, in perspective</p><h1 id="dashboard-heading" tabindex="-1">See where the power goes.</h1><p class="intro">One feeder. Two lighting circuits. A clearer picture of consumption.</p></div><div class="live-summary"><span class="status-dot" id="summary-dot"></span><span id="overview-status" role="status">Waiting for sensor readings</span></div></div>
+<div class="experience-grid">
+<section class="spatial-panel" aria-label="Interactive 3D energy model">
+<div class="spatial-heading"><div><h2>Spatial view <span class="tiny-tag">3D</span></h2><p>Illustrative two-zone model</p></div><div class="view-controls" aria-label="Camera view"><button type="button" id="view-perspective" aria-pressed="true">Perspective</button><button type="button" id="view-top" aria-pressed="false">Top view</button></div></div>
+<div id="scene" class="scene" data-state="waiting">
+<canvas id="energy-canvas" aria-label="3D model of the feeder and two lighting circuits. Drag to rotate, or use the camera controls." tabindex="0"></canvas>
+<div class="scene-message" id="scene-message" role="status">Preparing the room model…</div>
+<div id="scene-fallback" class="scene-fallback" hidden><div class="fallback-room"><span>A</span><strong>Zone A</strong><small>Lighting circuit</small></div><div class="fallback-room"><span>B</span><strong>Zone B</strong><small>Lighting circuit</small></div><p>3D is unavailable in this browser. All readings and circuit controls remain available.</p></div>
+<button class="scene-label label-a" id="label-a" data-zone="a" type="button" aria-label="Inspect Zone A"><i></i><span>Zone A <small>Lighting</small></span><b id="label-a-w">— W</b></button>
+<button class="scene-label label-b" id="label-b" data-zone="b" type="button" aria-label="Inspect Zone B"><i></i><span>Zone B <small>Lighting</small></span><b id="label-b-w">— W</b></button>
+<div class="scene-caption"><span class="feed-mark"></span><span>Main feeder <b id="scene-main">— W</b></span></div>
+</div>
+<div class="scene-bottom"><div class="scene-hint"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10a6 6 0 0 1 11-3M16 10a6 6 0 0 1-11 3M15 3v4h-4M5 17v-4h4"/></svg>Drag to explore. Select a circuit to inspect.</div><div class="camera-tools" aria-label="Model controls"><button type="button" id="rotate-left" aria-label="Rotate model left">↶</button><button type="button" id="rotate-right" aria-label="Rotate model right">↷</button><button type="button" id="zoom-out" aria-label="Zoom out">−</button><button type="button" id="zoom-in" aria-label="Zoom in">+</button><button type="button" id="reset-view">Reset view</button><button type="button" id="pause-motion" aria-pressed="false">Pause flow</button></div></div>
+<div class="inspection"><div><span id="inspect-type" class="eyebrow">System view</span><h3 id="inspect-name">Main feeder</h3></div><p id="inspect-description">Total current and estimated power across both lighting circuits.</p><div class="inspection-reading"><strong id="inspect-w">—</strong><span>estimated W</span></div></div>
+</section>
+<aside class="telemetry-panel" aria-label="Live energy readings">
+<div class="main-reading"><div class="section-label"><span class="feed-mark"></span>Main feeder<span id="reading-tag">Waiting</span></div><div class="hero-value"><span id="vM">—</span><small>W</small></div><p class="measurement-label">Estimated power</p><div class="formula"><span id="nM">— mA</span><span id="voltage-assumption">230 V assumed</span></div><div class="demand-track"><span id="demand-fill"></span></div><div class="demand-caption"><span>Demand threshold</span><strong id="demand-limit">— W</strong></div></div>
+<div class="circuit-list"><div class="section-label">Lighting circuits<span>Select to inspect</span></div>
+<button class="circuit-card zone-a" type="button" data-zone="a" aria-pressed="false"><span class="circuit-symbol">A</span><span class="circuit-name"><strong>Zone A</strong><small>Lighting circuit</small><em id="zone-a-status">Waiting for data</em></span><span class="circuit-reading"><b id="vA">—</b><small> W</small><span id="nA">— mA</span></span></button>
+<button class="circuit-card zone-b" type="button" data-zone="b" aria-pressed="false"><span class="circuit-symbol">B</span><span class="circuit-name"><strong>Zone B</strong><small>Lighting circuit</small><em id="zone-b-status">Waiting for data</em></span><span class="circuit-reading"><b id="vB">—</b><small> W</small><span id="nB">— mA</span></span></button>
+</div>
+<div class="recorded-energy"><div><span class="section-label">Recorded energy</span><strong><span id="vE">—</span><small> Wh</small></strong></div><div class="cost"><span>Estimated cost</span><b id="energy-cost">—</b><small id="nE">— / kWh</small></div></div>
+<div class="accuracy-note"><span>i</span><p>Room lighting follows circuit activity. Power and energy use the configured supply voltage.</p></div>
+</aside>
+</div>
+<div class="analytics-grid">
+<section class="panel trend-panel"><div class="panel-heading"><div><h2>Power over time</h2><p id="chart-range">Waiting for recorded samples</p></div><div class="legend"><span><i class="feed"></i>Feeder</span><span><i class="zone-a"></i>Zone A</span><span><i class="zone-b"></i>Zone B</span></div></div><div class="chart-wrap"><svg id="chart" viewBox="0 0 900 210" role="img" aria-label="Estimated power history in watts"></svg><p id="chart-empty">Your power history will appear as readings arrive.</p></div></section>
+<section class="panel split-panel"><div class="panel-heading"><div><h2>Where energy is used</h2><p>Recorded circuit energy</p></div><span class="tiny-tag">Wh</span></div><div class="split-content"><div class="energy-ring" id="energy-ring"><div><b id="split-total">—</b><span>circuit Wh</span></div></div><div class="split-readings"><div><span><i class="zone-a"></i>Zone A</span><b id="tA">—</b></div><div><span><i class="zone-b"></i>Zone B</span><b id="tB">—</b></div><div class="feeder-total"><span>Total feeder</span><b id="tT">—</b></div><p id="sTxt">Waiting for data</p></div></div></section>
+</div>
+<section class="events-panel"><div><h2>Recent events</h2><p>Demand and measurement updates</p></div><div id="ev" class="events-list"><p class="empty-events">No events recorded.</p></div></section>
+</section>
+</main><footer><span>GridScope <span class="footer-separator">/</span> Current-based energy monitoring</span><span>Power and energy are estimates.</span></footer>
+</div></body></html>

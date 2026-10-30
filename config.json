@@ -1,0 +1,10 @@
+{
+  "assumed_voltage_v": 230.0,
+  "tariff_inr_per_kwh": 8.0,
+  "peak_demand_w": 85.0,
+  "quiet_start_hour": 20,
+  "quiet_end_hour": 8,
+  "active_current_ma": 35.0,
+  "main_reference_gain": 1.0,
+  "branch_reference_gain": 1.0
+}
