@@ -1,5 +1,23 @@
 # GridScope energy monitor
 
+For the complete teammate walkthrough, including Arduino setup, hotspot
+credentials, flashing, calibration, live operation and troubleshooting, read
+[TEAM_GUIDE.md](TEAM_GUIDE.md).
+
+## Frontend preview without hardware
+
+Open `templates/index.html` using VS Code Live Server. That HTML preview
+automatically uses browser-generated sample data, without Python or an ESP.
+Use the **Preview controls** button at the bottom-right to open the floating
+menu. Choose **Both off**, **Zone A on**, **Zone B on**, or **Both on** to compare
+room lighting. The menu starts closed and dismisses with Escape or a click
+outside, so you can inspect the final dashboard layout. Export produces a sample
+CSV locally. No device data or saved database is changed by this mode.
+
+You can also enable this frontend preview on the Python-served dashboard by
+adding `?demo=1` to its URL (for example `http://127.0.0.1:8765/?demo=1`).
+The normal Python dashboard URL continues to use real telemetry.
+
 ## Flash once
 
 1. Open `firmware/energy_wifi/energy_wifi.ino` in Arduino IDE.
@@ -49,32 +67,46 @@ It tries local dashboard ports **8765-8775** and opens the available one.
 Keep the terminal open. You can also double-click `start_dashboard.cmd`, or
 run `.\run_windows.ps1` (these install dependencies before starting).
 
-Use **Dashboard** for readings, charts, energy totals and events. Switch to
+Use **Dashboard** for readings, charts and energy totals. Switch to
 **Debugging** for connection errors, scan results, device health, raw sensor
 packets and the full API response. The screen links support browser Back and
 direct links (`/#dashboard` and `/#debugging`); readings keep updating while
 you switch screens.
 
-The full-width Dashboard includes an interactive 3D illustration of the two
-lighting circuits. Drag the room model, use Perspective/Top view, or use the
-rotate and zoom buttons. Select a room label or circuit card to inspect its
-reading. The focused 3D canvas also supports arrow keys, +/-, and Home.
-The mouse wheel, trackpad pinch and two-finger touch pinch zoom the model
-while the pointer is over it. Browser zoom and page scrolling work normally
-outside the model. The opening layout fits the model and primary readings to
-the available viewport height; charts and event history follow below.
-Power-flow animation and lamp illumination follow fresh circuit readings;
-they stop when data goes stale. Pause flow or your system's reduced-motion
-setting stops the animation. Room layout and furniture are illustrative;
-lighting follows the activity of the two circuits.
-Static geometry is batched, shadows are cached, and resolution is capped to
-limit GPU work. Idle flow renders at 30 fps while camera interaction uses the
-browser's frame rate. Rendering stops when paused, offscreen, or in Debugging.
+The full-width Dashboard shows a two-room model facing straight forward, with
+the camera elevated 45 degrees. It automatically fits the model panel on desktop and mobile; the canvas
+has no camera controls or reading overlays. Minimal Zone A/B callouts sit
+outside the model and appear only while their circuit is active; on narrow
+screens they sit above it. Readings stay in the side
+panel. The opening layout fits the model and primary readings to the available
+viewport height, with charts and history below.
+
+Warm fixture lighting casts cached shadows across the room. A local reflected-
+light fill brightens walls and furniture when a circuit is active. This is a
+visual lighting approximation, not a simulation of the physical building.
+The three on states (A, B, both) and the off state can be compared using the
+floating Preview controls menu. Pause flow is also in that menu; the system
+reduced-motion setting stops animation automatically.
+
+Power-flow animation and room lighting follow fresh circuit readings and stop
+when data goes stale. The surrounding dashboard keeps its neutral light palette.
+Geometry is batched, static shadows are cached, and render resolution is capped.
+The 3D room renders only when lighting or panel size changes.
+The final room image is supersampled for crisp edges, with a six-million-pixel
+budget. Lighting transitions use a lower resolution before restoring the sharp
+final image. Fixture shadow maps are cached at 1024 pixels per face.
+Moving flow dots use a small 2D overlay capped at 60 fps; cached visibility checks keep them
+behind furniture. Animation stops when paused, offscreen, in a hidden tab, or
+in Debugging. Offscreen charts and hidden debugging details also skip updates
+until they are visible again.
+Flow pulse counts follow cable length and available screen space, with one
+pulse on the short Zone A branch. Dialogs, screen entrances, and controls use
+brief native browser animations that respect reduced-motion preferences.
 
 The renderer is served locally from `static/vendor` (Three.js 0.180.0, MIT
 license included). No CDN, downloaded model, or internet connection is needed
 to render the dashboard. If WebGL is unavailable, a simple room diagram is
-shown and the live readings and circuit inspection remain usable.
+shown and the live readings remain usable.
 
 ## What Python scans
 
@@ -126,7 +158,7 @@ Direct manual checks, if needed: `http://192.168.50.1/health` or
 
 - Exact device: `python server.py --device-url http://192.168.50.1:8081/telemetry`
 - USB serial: `python server.py --port COM3` (close Serial Monitor first).
-- Labeled simulation: `python server.py --demo`
+- Backend demo: `python server.py --demo` (mode is visible in Debugging; the dashboard has no simulation banner).
 - No automatic browser: `python server.py --no-browser`
 - Different dashboard port range: `python server.py --web-port 9000` tries 9000-9010.
 
@@ -136,6 +168,22 @@ Direct manual checks, if needed: `http://192.168.50.1/health` or
 and reference gains. Watts/Wh are estimates from measured RMS current at
 assumed voltage, not measured real power. Zone B is inferred from feeder
 minus Zone A. Sensor calibration/math retains the original behavior.
+
+The default energy-cost estimate uses MSEDCL LT I(B) residential, first 100
+monthly kWh: ₹3.96 energy plus ₹1.60 wheeling = ₹5.56/kWh for FY 2026–27.
+The source is [MERC's 25 March 2026 order, page 95](https://www.mahadiscom.in/wp-content/uploads/2026/07/Tariff-Order_Case-No.-75-of-2025-dated-25th-March-2026.pdf#page=95),
+published on Mahavitaran's official website. Reference data and validity dates
+are in `static/electricity-tariff.json`, shared by Python and frontend preview.
+The rate link beside the cost opens that source.
+
+Cost = recorded Wh ÷ 1000 × configured rate. For example, 4 Wh costs ₹0.02224
+at the default rate. This values monitored energy at one assumed slab; it is
+not a household bill calculator. Household monthly consumption is unknown,
+and fixed charges, FAC, electricity duty/taxes and time-of-day adjustments are
+excluded. Other slabs, providers or commercial premises require a different
+configured rate. A custom rate is labeled as custom, and an expired reference
+is flagged for review. Cloud-sourced totals use the current configured rate
+rather than an old stored cost. The measured energy history is preserved.
 
 Local data is stored in `energy.sqlite3`, created on first run. CSV export is
 available on the dashboard. Live and demo data are separated. Re-reading a

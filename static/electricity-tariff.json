@@ -1,0 +1,14 @@
+{
+  "provider": "MSEDCL",
+  "category": "LT I(B) Residential",
+  "effective_from": "2026-04-01",
+  "effective_until": "2027-03-31",
+  "verified_on": "2026-10-31",
+  "monthly_slab": "0–100 kWh",
+  "energy_inr_per_kwh": 3.96,
+  "wheeling_inr_per_kwh": 1.60,
+  "rate_inr_per_kwh": 5.56,
+  "basis": "Monitored energy valued at the residential first monthly slab. Household monthly consumption is not known.",
+  "excludes": ["fixed charges", "fuel adjustment charges (FAC)", "electricity duty and taxes", "time-of-day adjustments"],
+  "source_url": "https://www.mahadiscom.in/wp-content/uploads/2026/07/Tariff-Order_Case-No.-75-of-2025-dated-25th-March-2026.pdf#page=95"
+}

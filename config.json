@@ -1,6 +1,6 @@
 {
   "assumed_voltage_v": 230.0,
-  "tariff_inr_per_kwh": 8.0,
+  "tariff_inr_per_kwh": 5.56,
   "peak_demand_w": 85.0,
   "quiet_start_hour": 20,
   "quiet_end_hour": 8,

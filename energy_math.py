@@ -2,13 +2,24 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import math
+import json
+from pathlib import Path
 from typing import Any
+
+OFFICIAL_TARIFF = json.loads((Path(__file__).parent / "static" / "electricity-tariff.json").read_text(encoding="utf8"))
+
+
+def tariff_details(rate: float) -> dict:
+    if math.isclose(rate, OFFICIAL_TARIFF["rate_inr_per_kwh"], abs_tol=1e-9):
+        return {**OFFICIAL_TARIFF, "kind": "msedcl_first_slab"}
+    return {"kind": "custom", "rate_inr_per_kwh": rate,
+            "basis": "Configured flat energy rate; not an official MSEDCL bill calculation."}
 
 
 @dataclass(frozen=True)
 class Settings:
     assumed_voltage_v: float = 230.0
-    tariff_inr_per_kwh: float = 8.0
+    tariff_inr_per_kwh: float = OFFICIAL_TARIFF["rate_inr_per_kwh"]
     peak_demand_w: float = 85.0
     quiet_start_hour: int = 20
     quiet_end_hour: int = 8

@@ -19,7 +19,7 @@ from urllib.request import ProxyHandler, build_opener
 from urllib.parse import urlparse
 
 from cloud import CloudStore
-from energy_math import Settings, derive, energy_increment_wh, parse_data, within_quiet_hours
+from energy_math import Settings, derive, energy_increment_wh, parse_data, tariff_details, within_quiet_hours
 
 ROOT = Path(__file__).resolve().parent
 DB = ROOT / "energy.sqlite3"
@@ -220,7 +220,7 @@ class EnergyEngine:
                     st["history"] = [{"timestamp": r["ts"], "main_w": r["main_w"], "branch_a_w": r["a_w"],
                                       "branch_b_w": r["b_w"], "residual_ma": r["residual_ma"]} for r in h]
                     st["totals"] = {"total_wh": last["wh_total"], "a_wh": last["wh_a"], "b_wh": last["wh_b"],
-                                    "cost_inr": last["cost_inr"]}
+                                    "cost_inr": round(last["wh_total"] / 1000 * self.settings.tariff_inr_per_kwh, 5)}
                     st["events"] = [{"timestamp": e["ts"], "kind": e["kind"], "title": e["title"],
                                      "details": e["details"]} for e in c.recent_events(25, self.mode)]
                     st["source"] = "mongodb"
@@ -252,7 +252,7 @@ class EnergyEngine:
                 "totals": {"total_wh": round(self.total_wh, 5), "a_wh": round(self.a_wh, 5),
                            "b_wh": round(self.b_wh, 5),
                            "cost_inr": round(self.total_wh / 1000 * self.settings.tariff_inr_per_kwh, 5)},
-                "settings": asdict(self.settings), "events": recent_events,
+                "settings": asdict(self.settings), "tariff": tariff_details(self.settings.tariff_inr_per_kwh), "events": recent_events,
                 "history": list(reversed(history)), "error": self.error,
                 "calibration_status": ("AUTO_ON_FIRMWARE_BOOT" if (self.latest and self.latest["firmware"] == "legacy") else self.calibration_status),
                 "firmware_compatibility": "Original dotted-board firmware: no reflashing needed",
