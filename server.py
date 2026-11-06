@@ -19,6 +19,7 @@ from urllib.request import ProxyHandler, build_opener
 from urllib.parse import urlparse
 
 from cloud import CloudStore
+from analytics import local_analytics, parameters, report
 from energy_math import Settings, derive, energy_increment_wh, parse_data, tariff_details, within_quiet_hours
 
 ROOT = Path(__file__).resolve().parent
@@ -55,6 +56,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp REAL, kind TEXT,
             title TEXT, details TEXT, data_mode TEXT
         )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS samples_mode_time ON samples(data_mode,timestamp)")
 
 
 def load_settings() -> Settings:
@@ -66,9 +68,10 @@ def load_settings() -> Settings:
 class EnergyEngine:
     def __init__(self, mode: str = "LIVE"):
         init_db()
-        self.cloud = CloudStore()
         self.lock = threading.RLock()
         self.settings = load_settings()
+        self.cloud = CloudStore(DB)
+        self.cloud.settings = asdict(self.settings)
         self.mode = mode
         self.port: str | None = None
         self.transport = "USB serial"
@@ -105,7 +108,6 @@ class EnergyEngine:
         with db_connection() as conn:
             conn.execute("INSERT INTO events(timestamp,kind,title,details,data_mode) VALUES (?,?,?,?,?)",
                          (now, kind, title, details, self.mode))
-        self.cloud.push("events", {"ts": now, "kind": kind, "title": title, "details": details, "mode": self.mode})
 
     def receive_info(self, line: str):
         with self.lock:
@@ -132,10 +134,9 @@ class EnergyEngine:
             self.log_event("warning", title, details)
 
     def accept(self, packet: dict[str, float]):
-        # Preserve the original dotted-board firmware as-is. Its DATA line
-        # already carries calibrated-and-noise-filtered current, not raw ADC.
-        # Retain the old Flask eight-sample smoothing and 20mA soft floor.
-        if "s1_raw_mA" not in packet:  # firmware from Parth0014/Sensor master
+        # New zone packets already contain independently filtered RMS current.
+        # Keep the old smoothing/coupled rule only for unmarked feeder firmware.
+        if "s1_raw_mA" not in packet and packet.get("independent") != 1:
             with self.lock:
                 original_main = packet["s1_mA"]
                 original_branch = packet["s2_mA"]
@@ -162,7 +163,8 @@ class EnergyEngine:
         with self.lock:
             dt = mono - self.last_packet_mono if self.last_packet_mono is not None else 0
             # Integrate from real elapsed time; never multiply nominal samples by fixed intervals.
-            if self.previous_power and reading["valid_for_energy"]:
+            if (self.previous_power and reading["valid_for_energy"]
+                    and self.previous_power["sensor_layout"] == reading["sensor_layout"]):
                 self.total_wh += energy_increment_wh(self.previous_power["main_w"], reading["main_w"], dt)
                 self.a_wh += energy_increment_wh(self.previous_power["branch_a_w"], reading["branch_a_w"], dt)
                 if self.previous_power["branch_b_w"] is not None and reading["branch_b_w"] is not None:
@@ -180,9 +182,9 @@ class EnergyEngine:
                 self._alert("demand", reading["main_w"] >= self.settings.peak_demand_w,
                             "Peak demand threshold", f"Estimated {reading['main_w']:.1f} W > {self.settings.peak_demand_w:.1f} W")
                 self._alert("after_hours", quiet and reading["main_ma"] >= self.settings.active_current_ma,
-                            "Consumption outside operating hours", "Main feeder remains active during configured quiet hours")
+                            "Consumption outside operating hours", "Monitored loads remain active during configured quiet hours")
                 self._alert("mismatch", any(f.startswith("METER_MISMATCH") for f in reading["flags"]),
-                            "Sensor disagreement", f"Branch > main feeder, residual {reading['signed_residual_ma']:.1f} mA")
+                            "Sensor disagreement", "Branch sensor exceeds feeder; check sensor placement and scaling")
                 self._alert("clipped", not reading["valid_for_energy"],
                             "ADC saturation", "Input waveform is clipped; energy integration skipped")
             # Sample 1 row/second, but calculate energy at each incoming packet.
@@ -201,32 +203,25 @@ class EnergyEngine:
                           reading["raw_branch_ma"],reading["sensor_noise_main_ma"],reading["sensor_noise_branch_ma"],
                           None if reading["idle_calibrated"] is None else int(reading["idle_calibrated"]),
                           int(not reading["valid_for_energy"]),reading["sample_window_ms"]))
-                self.cloud.push("samples", {"ts": now, "mode": self.mode, "main_ma": reading["main_ma"],
-                    "main_w": reading["main_w"], "a_w": reading["branch_a_w"], "b_w": reading["branch_b_w"],
-                    "residual_ma": reading["signed_residual_ma"], "wh_total": self.total_wh, "wh_a": self.a_wh,
-                    "wh_b": self.b_wh, "cost_inr": self.total_wh / 1000 * self.settings.tariff_inr_per_kwh,
-                    "flags": reading["flags"]})
 
     def dashboard(self) -> dict:
         st = self.state()
-        c = self.cloud
-        st["cloud"] = {"enabled": c.enabled, "ok": c.ok, "queued": c.queued, "synced": c.synced}
+        st["cloud"] = self.cloud.status()
         st["source"] = "local"
-        if c.ok:
-            try:
-                h = c.history(180, self.mode)
-                if h:
-                    last = h[-1]
-                    st["history"] = [{"timestamp": r["ts"], "main_w": r["main_w"], "branch_a_w": r["a_w"],
-                                      "branch_b_w": r["b_w"], "residual_ma": r["residual_ma"]} for r in h]
-                    st["totals"] = {"total_wh": last["wh_total"], "a_wh": last["wh_a"], "b_wh": last["wh_b"],
-                                    "cost_inr": round(last["wh_total"] / 1000 * self.settings.tariff_inr_per_kwh, 5)}
-                    st["events"] = [{"timestamp": e["ts"], "kind": e["kind"], "title": e["title"],
-                                     "details": e["details"]} for e in c.recent_events(25, self.mode)]
-                    st["source"] = "mongodb"
-            except Exception as e:
-                c.ok = False; st["cloud"]["ok"] = False
         return st
+
+    def analytics(self, range_name="24h", mode=None):
+        mode = mode or self.mode
+        start, end, bucket = parameters(range_name, mode)
+        rate = self.settings.tariff_inr_per_kwh
+        with db_connection() as conn:
+            rows = local_analytics(conn, mode, start, end, bucket, rate)
+            previous = local_analytics(conn, mode, start-(end-start), start-0.000001, bucket, rate)
+            latest = conn.execute("SELECT timestamp AS ts,main_w,branch_a_w AS a_w,branch_b_w AS b_w FROM samples WHERE data_mode=? ORDER BY timestamp DESC LIMIT 1", (mode,)).fetchone()
+            events = [dict(r) for r in conn.execute("SELECT timestamp AS ts,kind,title,details FROM events WHERE data_mode=? ORDER BY timestamp DESC LIMIT 15", (mode,))]
+        return report(rows, previous, start, end, bucket, rate, source="local", mode=mode,
+                      device_id=self.cloud.device_id, cloud=self.cloud.status(), latest=dict(latest) if latest else None,
+                      events=events, tariff=tariff_details(rate))
 
     def state(self) -> dict:
         with self.lock:
@@ -254,8 +249,8 @@ class EnergyEngine:
                            "cost_inr": round(self.total_wh / 1000 * self.settings.tariff_inr_per_kwh, 5)},
                 "settings": asdict(self.settings), "tariff": tariff_details(self.settings.tariff_inr_per_kwh), "events": recent_events,
                 "history": list(reversed(history)), "error": self.error,
-                "calibration_status": ("AUTO_ON_FIRMWARE_BOOT" if (self.latest and self.latest["firmware"] == "legacy") else self.calibration_status),
-                "firmware_compatibility": "Original dotted-board firmware: no reflashing needed",
+                "calibration_status": ("AUTO_ON_FIRMWARE_BOOT" if (self.latest and self.latest["firmware"] in ("legacy", "energy_monitor_independent_v1")) else self.calibration_status),
+                "firmware_compatibility": "Independent zone firmware supported; unmarked older packets keep feeder/branch mapping",
             }
 
     def update_settings(self, changes: dict) -> dict:
@@ -268,13 +263,14 @@ class EnergyEngine:
             tmp.write_text(json.dumps(asdict(updated), indent=2) + "\n", encoding="utf8")
             os.replace(tmp, CONFIG)
             self.settings = updated
+            self.cloud.settings = asdict(updated)
             self.log_event("info", "Settings updated", "Configured estimates/calibration; historical records not retroactively recalculated")
             return asdict(updated)
 
     def request_idle_calibration(self) -> bool:
         # Deliberately don't send CAL:IDLE to legacy firmware: that command
         # was not implemented in the original dotted-board sketch.
-        if self.latest and self.latest.get("firmware") == "legacy":
+        if self.latest and self.latest.get("firmware") in ("legacy", "energy_monitor_independent_v1"):
             return False
         with self.lock:
             if self.mode != "LIVE" or self.serial_device is None or not self.serial_device.is_open:
@@ -443,9 +439,11 @@ def demo_feeder(engine: EnergyEngine):
         a = 175.0 if state in (1, 3) else 0.0
         b = 260.0 if state in (2, 3) else 0.0
         wiggle = 2.0 * math.sin(k * 0.4)
-        packet = {"s1_mA": max(0, a + b + wiggle), "s2_mA": max(0, a + wiggle / 2),
-                  "s1_raw_mA": max(0, a + b + wiggle + 1.8),
-                  "s2_raw_mA": max(0, a + wiggle / 2 + 1.8),
+        packet = {"s1_mA": max(0, a + wiggle) if a else 0,
+                  "s2_mA": max(0, b + wiggle / 2) if b else 0,
+                  "independent": 1,
+                  "s1_raw_mA": max(0, a + wiggle + 1.8),
+                  "s2_raw_mA": max(0, b + wiggle / 2 + 1.8),
                   "s1_noise_mA": 3.0, "s2_noise_mA": 3.0,
                   "idle_valid": 1, "clip": 0, "seq": k, "window_ms": 236}
         engine.accept(packet)
@@ -468,6 +466,17 @@ def create_app(engine: EnergyEngine) -> Flask:
     @app.get("/api/dashboard")
     def dashboard():
         return jsonify(engine.dashboard())
+
+    @app.get("/analytics")
+    def analytics_page():
+        return render_template("analytics.html", hosted=False, default_mode=engine.mode)
+
+    @app.get("/api/analytics")
+    def analytics_api():
+        try:
+            return jsonify(engine.analytics(request.args.get("range", "24h"), request.args.get("mode", engine.mode)))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
 
     @app.post("/api/settings")
     def settings():
@@ -504,6 +513,8 @@ def create_app(engine: EnergyEngine) -> Flask:
 
 
 def main():
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / '.env')
     parser = argparse.ArgumentParser(description="Soldered-board energy audit monitor")
     parser.add_argument("--port", help="Use USB serial instead of Wi-Fi scanning, e.g. COM3")
     parser.add_argument("--web-port", type=int, default=8765)
@@ -539,11 +550,15 @@ def main():
     if args.open_browser:
         threading.Thread(target=open_dashboard, args=(http_server.server_port,), daemon=True).start()
     print(f"Energy Monitor ({engine.mode}) -> http://localhost:{http_server.server_port}")
+    print(f"Usage analytics -> http://localhost:{http_server.server_port}/analytics")
+    print("MongoDB: background sync enabled; readings stay saved locally if internet is unavailable."
+          if engine.cloud.enabled else "MongoDB: not configured. Running locally; add MONGODB_URI in .env to upload a copy.")
     print("AC watt/kWh readings are estimates at configured voltage, not revenue-grade measurements.")
     try:
         http_server.serve_forever()
     finally:
         http_server.server_close()
+        engine.cloud.close()
 
 
 if __name__ == "__main__":

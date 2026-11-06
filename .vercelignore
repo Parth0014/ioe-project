@@ -1,0 +1,15 @@
+.venv
+.venv-cloud
+.python
+.uv-cache
+.npm-cache
+.playwright-cli
+.godmode
+.git
+.gravitas
+output
+tests
+firmware
+energy.sqlite3*
+.env*
+!.env.example

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Usage analytics · GridScope</title><link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/analytics.css"><script src="/static/analytics.js" defer></script>
+</head>
+<body data-hosted="{{ 'true' if hosted else 'false' }}" data-mode="{{ default_mode }}">
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <header class="header">
+    <a class="brand" id="analytics-brand" href="/analytics" aria-label="GridScope analytics"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M8 9h11v9h9M8 27h11v-9M8 18h11"/><circle cx="8" cy="9" r="3"/><circle cx="8" cy="18" r="3"/><circle cx="8" cy="27" r="3"/><circle cx="28" cy="18" r="3"/></svg><span>GridScope<small id="app-context">Energy monitor</small></span></a>
+    <nav aria-label="Main navigation"><a href="/" id="nav-local-dashboard">Live dashboard</a><a href="/analytics" id="nav-usage" aria-current="page">Usage analytics</a></nav>
+    <form id="signout" action="/logout" method="post" hidden><input type="hidden" name="csrf" value="{{ csrf_token() if hosted else '' }}"><button class="quiet" type="submit">Sign out</button></form><span class="context" id="local-context">Local gateway</span>
+  </header>
+  <main id="main" tabindex="-1">
+    <section class="page-heading"><div><p class="eyebrow">USAGE ANALYTICS</p><h1>Your energy, over time.</h1><p class="intro">Understand what you recorded, where it went, and what it cost.</p></div><button class="outline" id="export" disabled>Export summary</button></section>
+    <div class="toolbar">
+      <fieldset class="period"><legend class="sr-only">Time range</legend><label><input type="radio" name="range" value="24h" checked><span>24 hours</span></label><label><input type="radio" name="range" value="7d"><span>7 days</span></label><label><input type="radio" name="range" value="30d"><span>30 days</span></label></fieldset>
+      <div class="filter"><label for="mode">Readings</label><select id="mode"><option value="LIVE">Real sensor data</option><option value="DEMO">Demo data</option></select></div>
+      <button class="quiet" id="refresh">Refresh data</button>
+    </div>
+    <div class="status-line" role="status" aria-live="polite"><span class="status-dot" id="status-dot"></span><span id="status">Loading recorded usage…</span><span id="refreshed" class="muted"></span></div>
+    <div class="notice error" id="error" role="alert" hidden><span id="error-text"></span><button class="quiet" id="retry">Try again</button></div>
+    <div class="notice" id="demo-note" hidden>Demo data is selected. These readings are simulated and are kept separate from real sensor history.</div>
+    <div class="notice" id="preview-note" hidden>Frontend preview with sample data. Run python app.py to view your saved sensor history locally; MongoDB is optional.</div>
+    <div class="notice" id="empty" hidden><strong>No readings in this period.</strong><span>Try a longer range, or keep python app.py running to record usage. Local history does not require MongoDB.</span></div>
+    <div id="report" hidden>
+      <section class="metrics" aria-label="Usage summary">
+        <article class="metric primary"><p>Recorded energy</p><div><strong id="energy">—</strong><span id="energy-unit">Wh</span></div><small id="comparison">No earlier period to compare</small></article>
+        <article class="metric"><p>Estimated energy cost</p><div><strong id="cost">—</strong></div><small id="rate">At the current configured rate</small></article>
+        <article class="metric"><p>Peak recorded demand</p><div><strong id="peak">—</strong><span>W</span></div><small id="average">Average recorded demand —</small></article>
+        <article class="metric"><p>Recording coverage</p><div><strong id="coverage">—</strong><span>%</span></div><small id="duration">Within the selected period</small></article>
+      </section>
+      <div class="analysis-grid">
+        <section class="panel trend"><div class="panel-heading"><div><p class="eyebrow">CONSUMPTION</p><h2>When energy was used</h2></div><span id="bucket-label" class="muted">Hourly · IST</span></div><div class="chart-key"><span><i class="key-recorded"></i>Recorded energy</span><span><i class="key-gap"></i>No readings</span></div><div id="chart" class="chart" role="img" aria-label="Recorded energy by time"></div><p class="chart-caption" id="chart-caption">Energy in Wh. Empty intervals are gaps in recording.</p></section>
+        <section class="panel split"><p class="eyebrow">CIRCUIT BREAKDOWN</p><h2>Where the energy went</h2><div class="zone"><div><span><i class="zone-dot a"></i>Zone A</span><strong id="zone-a">—</strong></div><progress id="share-a" max="100" value="0" aria-label="Zone A share of feeder energy"></progress><small id="percent-a">—</small></div><div class="zone"><div><span><i class="zone-dot b"></i>Zone B <small>inferred</small></span><strong id="zone-b">—</strong></div><progress id="share-b" max="100" value="0" aria-label="Zone B share of feeder energy"></progress><small id="percent-b">—</small></div><p class="footnote" id="split-note">Shares use recorded feeder energy. Zone B is inferred from the two sensors.</p></section>
+      </div>
+      <div class="secondary-grid">
+        <section class="panel"><div class="panel-heading"><div><p class="eyebrow">RECORDING HEALTH</p><h2>Know what is covered</h2></div></div><dl class="health"><div><dt>Latest saved reading</dt><dd id="last-reading">—</dd></div><div><dt>Last recorded power</dt><dd id="last-power">—</dd></div><div><dt>Data source</dt><dd id="source">—</dd></div><div><dt>Cloud connection</dt><dd id="cloud-state">—</dd></div><div><dt>Previous period coverage</dt><dd id="previous-coverage">—</dd></div></dl><p class="footnote" id="quality-note"></p><details><summary>Gateway details</summary><p class="footnote" id="gateway-details"></p></details></section>
+        <section class="panel"><div class="panel-heading"><div><p class="eyebrow">GATEWAY ACTIVITY</p><h2>Recent events</h2></div></div><ol class="events" id="events"></ol><p class="muted" id="no-events" hidden>No events have been recorded for these readings.</p></section>
+      </div>
+      <details class="data-table"><summary>View the chart as a table</summary><div class="table-scroll" tabindex="0" role="region" aria-label="Usage summary table"><table><caption>Recorded energy by interval, India Standard Time</caption><thead><tr><th scope="col">Interval (IST)</th><th scope="col">Feeder (Wh)</th><th scope="col">Zone A (Wh)</th><th scope="col">Zone B (Wh)</th><th scope="col">Samples</th></tr></thead><tbody id="table-body"></tbody></table></div></details>
+      <footer><p>Power and energy are estimates at assumed voltage. Missing periods are not estimated.</p><p>Cost covers recorded energy at the current flat rate, excluding fixed charges and taxes. <a id="tariff-link" hidden target="_blank" rel="noopener noreferrer">Rate reference</a></p></footer>
+    </div>
+  </main>
+</div>
+</body></html>

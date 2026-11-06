@@ -1,222 +1,402 @@
+
 #include <Wire.h>
 #include <Adafruit_ADS1X15.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include "wifi_config.h"
+#include <math.h>
 
-ESP8266WebServer web(80);
-ESP8266WebServer web8080(8080);
-ESP8266WebServer web8081(8081);
-ESP8266WebServer* servers[] = {&web, &web8080, &web8081};
-String telemetry;
-uint32_t sequence = 0;
-uint32_t bootId = 0;
-unsigned long lastMeasurement = 0;
-bool wifiWasConnected = false;
-String sensorStatus = "STARTING";
-bool sensorAvailable = false;
+// =====================================================
+// SERIAL CONFIGURATION
+// =====================================================
 
-void serviceNetwork() {
-  bool connected = WiFi.status() == WL_CONNECTED;
-  if (connected && !wifiWasConnected) {
-    Serial.print("WIFI:TELEMETRY_URL=http://");
-    Serial.print(WiFi.localIP());
-    Serial.println("/telemetry");
-  }
-  wifiWasConnected = connected;
-  for (auto* server : servers) server->handleClient();
-}
-
-void startWebServers() {
-  for (auto* server : servers) {
-    server->on("/health", HTTP_GET, [server]() {
-      String json = "{\"device\":\"GridScope\",\"protocol\":1,\"status\":\"" + sensorStatus
-        + "\",\"station_ip\":\"" + WiFi.localIP().toString()
-        + "\",\"ap_ip\":\"" + WiFi.softAPIP().toString()
-        + "\",\"hotspot_connected\":" + (WiFi.status() == WL_CONNECTED ? "true" : "false")
-        + ",\"uptime_seconds\":" + String(millis() / 1000)
-        + ",\"ports\":[80,8080,8081]}";
-      server->sendHeader("Cache-Control", "no-store");
-      server->send(200, "application/json", json);
-    });
-    server->on("/telemetry", HTTP_GET, [server]() {
-      server->sendHeader("Cache-Control", "no-store");
-      if (telemetry.length() == 0 || millis() - lastMeasurement > 3000) {
-        server->send(503, "text/plain", sensorStatus + ": waiting for a fresh measurement");
-      } else {
-        server->send(200, "text/plain", telemetry);
-      }
-    });
-    server->on("/", HTTP_GET, [server]() {
-      server->send(200, "text/plain", "GridScope ESP8266. Open /health for diagnostics or /telemetry for readings. Ports: 80, 8080, 8081.");
-    });
-    server->begin();
-  }
-}
-
+// Match the Python serial reader; ROM boot messages still use 74880 baud.
 #define BAUD_RATE       115200
 
-// ── Sampling ─────────────────────────────────────────────
+// =====================================================
+// HTTP SERVERS
+// =====================================================
+
+ESP8266WebServer http80(80);
+ESP8266WebServer http8080(8080);
+ESP8266WebServer http8081(8081);
+
+const char* deviceStatus = "STARTING";
+
+String latestTelemetry;
+
+uint32_t bootId = 0;
+uint32_t sampleSequence = 0;
+
+bool sensorAvailable = false;
+
+// =====================================================
+// SENSOR CONFIGURATION
+// =====================================================
+
 #define SAMPLES         80
 #define CAL_SAMPLES     400
 
-// ── ADC + Sensor Config ─────────────────────────────────
-#define ADC_LSB_MV      0.0625f    // GAIN_TWO → 0.0625 mV per count
-#define SENSITIVITY     70.0f     // ACS712-20A → 100 mV/A
-#define DIVIDER_FACTOR  2.0f       // 10k + 10k divider
+#define ADC_LSB_MV      0.0625f
+#define SENSITIVITY     70.0f
+#define DIVIDER_FACTOR  2.0f
 
-// ── Power ───────────────────────────────────────────────
-#define MAINS_VOLTS     230.0f
-
-// ── Noise + tuning ─────────────────────────────────────
 #define MIN_CURRENT_MA  20.0f
 #define S2_TRIM_MA      0.0f
 
-#define CH_TOTAL        0
-#define CH_LEGAL        1
+#define CH_SENSOR1        0
+#define CH_SENSOR2        1
+
 #define YIELD_EVERY     50
 
 Adafruit_ADS1115 ads;
 
-float baseline_total = 0.0f;
-float baseline_legal = 0.0f;
+float baseline_sensor1 = 0.0f;
+float baseline_sensor2 = 0.0f;
 
-// ───────────────────────────────────────────────────────
+// =====================================================
+// WIFI CLIENT HANDLING
+// =====================================================
+
+void serveWifi() {
+  http80.handleClient();
+  http8080.handleClient();
+  http8081.handleClient();
+
+  yield();
+}
+
+// =====================================================
+// HTTP ENDPOINTS
+// =====================================================
+
+void startHttp(ESP8266WebServer& server) {
+
+  ESP8266WebServer* endpoint = &server;
+
+  server.on("/health", HTTP_GET, [endpoint]() {
+
+    String body = "{\"device\":\"GridScope\",";
+    body += "\"protocol\":1,";
+    body += "\"sensor_layout\":\"independent\",";
+    body += "\"status\":\"";
+    body += deviceStatus;
+    body += "\",\"transport\":\"Wi-Fi AP\",";
+    body += "\"ip\":\"192.168.50.1\"}";
+
+    endpoint->send(200, "application/json", body);
+  });
+
+  server.on("/telemetry", HTTP_GET, [endpoint]() {
+
+    endpoint->sendHeader("Cache-Control", "no-store");
+
+    if (latestTelemetry.length() == 0) {
+
+      endpoint->send(503, "text/plain", deviceStatus);
+
+    } else {
+
+      endpoint->send(200, "text/plain", latestTelemetry);
+
+    }
+  });
+
+  server.on("/", HTTP_GET, [endpoint]() {
+
+    endpoint->send(
+      200,
+      "text/plain",
+      "GridScope: /health for status; /telemetry for sensor readings. Keep both bulbs OFF during startup calibration."
+    );
+
+  });
+
+  server.begin();
+}
+
+// =====================================================
+// WIFI ACCESS POINT
+// =====================================================
+
+void startWifi() {
+
+  bootId = ESP.getCycleCount() ^ micros();
+
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_AP);
+
+  IPAddress ip(192, 168, 50, 1);
+
+  if (
+    !WiFi.softAPConfig(
+      ip,
+      ip,
+      IPAddress(255, 255, 255, 0)
+    ) ||
+    !WiFi.softAP(
+      "GridScope-Setup",
+      "GridScope123"
+    )
+  ) {
+
+    deviceStatus = "WIFI_START_FAILED";
+
+    Serial.println("ERR:WIFI_START_FAILED");
+
+    return;
+  }
+
+  startHttp(http80);
+  startHttp(http8080);
+  startHttp(http8081);
+
+  Serial.println(
+    "INFO:WIFI GridScope-Setup http://192.168.50.1/health"
+  );
+}
+
+// =====================================================
+// SENSOR BASELINE CALIBRATION
+// =====================================================
+
 void calibrateBaseline() {
-  sensorStatus = "CALIBRATING: keep both bulbs OFF";
+
   Serial.println("CAL:STARTED");
 
   for (int i = 0; i < 50; i++) {
-    ads.readADC_SingleEnded(CH_TOTAL);
-    ads.readADC_SingleEnded(CH_LEGAL);
-    if (i % 10 == 0) { serviceNetwork(); yield(); }
+
+    ads.readADC_SingleEnded(CH_SENSOR1);
+    ads.readADC_SingleEnded(CH_SENSOR2);
+
+    if (i % 10 == 0) {
+      yield();
+    }
+
     delay(5);
   }
 
-  double sum_total = 0;
-  for (int i = 0; i < CAL_SAMPLES; i++) {
-    sum_total += ads.readADC_SingleEnded(CH_TOTAL);
-    delayMicroseconds(1200);
-    if (i % YIELD_EVERY == 0) { serviceNetwork(); yield(); }
-  }
-  baseline_total = sum_total / CAL_SAMPLES;
+  // SENSOR 1 BASELINE
 
-  double sum_legal = 0;
-  for (int i = 0; i < CAL_SAMPLES; i++) {
-    sum_legal += ads.readADC_SingleEnded(CH_LEGAL);
-    delayMicroseconds(1200);
-    if (i % YIELD_EVERY == 0) { serviceNetwork(); yield(); }
-  }
-  baseline_legal = sum_legal / CAL_SAMPLES;
+  double sum_sensor1 = 0;
 
-  Serial.print("CAL:BASELINE,total=");
-  Serial.print(baseline_total, 2);
-  Serial.print(",legal=");
-  Serial.println(baseline_legal, 2);
+  for (int i = 0; i < CAL_SAMPLES; i++) {
+
+    sum_sensor1 += ads.readADC_SingleEnded(CH_SENSOR1);
+
+    delayMicroseconds(1200);
+
+    if (i % YIELD_EVERY == 0) {
+      serveWifi();
+    }
+  }
+
+  baseline_sensor1 = sum_sensor1 / CAL_SAMPLES;
+
+  // SENSOR 2 BASELINE
+
+  double sum_sensor2 = 0;
+
+  for (int i = 0; i < CAL_SAMPLES; i++) {
+
+    sum_sensor2 += ads.readADC_SingleEnded(CH_SENSOR2);
+
+    delayMicroseconds(1200);
+
+    if (i % YIELD_EVERY == 0) {
+      serveWifi();
+    }
+  }
+
+  baseline_sensor2 = sum_sensor2 / CAL_SAMPLES;
+
+  Serial.print("CAL:BASELINE,s1=");
+  Serial.print(baseline_sensor1, 2);
+
+  Serial.print(",s2=");
+  Serial.println(baseline_sensor2, 2);
 }
 
-// ───────────────────────────────────────────────────────
+// =====================================================
+// SENSOR READING AND TELEMETRY
+// =====================================================
+
 void readAndSend() {
 
-  double sq_total = 0, sq_legal = 0;
+  double sq_sensor1 = 0;
+  double sq_sensor2 = 0;
 
   for (int i = 0; i < SAMPLES; i++) {
-    float v_total = ads.readADC_SingleEnded(CH_TOTAL) - baseline_total;
-    float v_legal = ads.readADC_SingleEnded(CH_LEGAL) - baseline_legal;
 
-    sq_total += v_total * v_total;
-    sq_legal += v_legal * v_legal;
+    float v_sensor1 =
+      ads.readADC_SingleEnded(CH_SENSOR1) - baseline_sensor1;
+
+    float v_sensor2 =
+      ads.readADC_SingleEnded(CH_SENSOR2) - baseline_sensor2;
+
+    sq_sensor1 += v_sensor1 * v_sensor1;
+    sq_sensor2 += v_sensor2 * v_sensor2;
 
     delayMicroseconds(800);
+
+    if (i % 10 == 0) {
+      serveWifi();
+    }
   }
 
-  float rms_counts_total = sqrt(sq_total / SAMPLES);
-  float rms_counts_legal = sqrt(sq_legal / SAMPLES);
+  // RMS CALCULATION
 
-  // ── Convert counts → mV ───────────────────────────────
-  float rms_mV_total = rms_counts_total * ADC_LSB_MV;
-  float rms_mV_legal = rms_counts_legal * ADC_LSB_MV;
+  float rms_counts_sensor1 =
+    sqrt(sq_sensor1 / SAMPLES);
 
-  // ── Convert mV → Current ──────────────────────────────
-  float current_total_mA = (rms_mV_total / SENSITIVITY) * 1000.0f * DIVIDER_FACTOR;
-  float current_legal_mA = (rms_mV_legal / SENSITIVITY) * 1000.0f * DIVIDER_FACTOR;
+  float rms_counts_sensor2 =
+    sqrt(sq_sensor2 / SAMPLES);
 
-  // ── Noise filter ──────────────────────────────────────
-  if (current_total_mA < MIN_CURRENT_MA) current_total_mA = 0;
-  if (current_legal_mA < MIN_CURRENT_MA) current_legal_mA = 0;
+  // COUNTS TO MILLIVOLTS
 
-  // ── Trim mismatch ─────────────────────────────────────
-  current_legal_mA = max(0.0f, current_legal_mA - S2_TRIM_MA);
+  float rms_mV_sensor1 =
+    rms_counts_sensor1 * ADC_LSB_MV;
 
-  // ── Power calculation ─────────────────────────────────
-  float watts_total = (current_total_mA / 1000.0f) * MAINS_VOLTS;
-  float watts_legal = (current_legal_mA / 1000.0f) * MAINS_VOLTS;
+  float rms_mV_sensor2 =
+    rms_counts_sensor2 * ADC_LSB_MV;
 
-  float theft_mA = max(0.0f, current_total_mA - current_legal_mA);
-  float theft_W  = (theft_mA / 1000.0f) * MAINS_VOLTS;
+  // MILLIVOLTS TO CURRENT
 
-  // ── Output ────────────────────────────────────────────
-  Serial.print("DATA,s1_mA="); Serial.print(current_total_mA, 1);
-  Serial.print(",s2_mA=");     Serial.print(current_legal_mA, 1);
-  Serial.print(",s1_W=");      Serial.print(watts_total, 1);
-  Serial.print(",s2_W=");      Serial.print(watts_legal, 1);
-  Serial.print(",theft_mA=");  Serial.print(theft_mA, 1);
-  Serial.print(",theft_W=");   Serial.println(theft_W, 1);
-  telemetry = "DATA,s1_mA=" + String(current_total_mA, 1)
-    + ",s2_mA=" + String(current_legal_mA, 1)
-    + ",s1_W=" + String(watts_total, 1)
-    + ",s2_W=" + String(watts_legal, 1)
-    + ",boot=" + String(bootId) + ",seq=" + String(++sequence);
-  lastMeasurement = millis();
+  float current_sensor1_mA =
+    (rms_mV_sensor1 / SENSITIVITY)
+    * 1000.0f
+    * DIVIDER_FACTOR;
+
+  float current_sensor2_mA =
+    (rms_mV_sensor2 / SENSITIVITY)
+    * 1000.0f
+    * DIVIDER_FACTOR;
+
+  // NOISE FILTER
+
+  if (current_sensor1_mA < MIN_CURRENT_MA) {
+    current_sensor1_mA = 0;
+  }
+
+  if (current_sensor2_mA < MIN_CURRENT_MA) {
+    current_sensor2_mA = 0;
+  }
+
+  // SENSOR TRIM
+
+  current_sensor2_mA =
+    max(0.0f, current_sensor2_mA - S2_TRIM_MA);
+
+  // TELEMETRY GENERATION
+
+  latestTelemetry =
+    "DATA,s1_mA=" + String(current_sensor1_mA, 1);
+
+  latestTelemetry +=
+    ",s2_mA=" + String(current_sensor2_mA, 1);
+
+  // Each ACS712 measures one separate zone; neither reading is a difference.
+  latestTelemetry += ",independent=1";
+
+  latestTelemetry +=
+    ",boot=" + String(bootId);
+
+  latestTelemetry +=
+    ",seq=" + String(++sampleSequence);
+
+  Serial.println(latestTelemetry);
 }
 
-// ───────────────────────────────────────────────────────
+// =====================================================
+// SETUP
+// =====================================================
+
 void setup() {
+
+  // SERIAL INITIALIZATION
+
   Serial.begin(BAUD_RATE);
-  bootId = ESP.random();
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAPConfig(IPAddress(192, 168, 50, 1), IPAddress(192, 168, 50, 1), IPAddress(255, 255, 255, 0));
-  if (!WiFi.softAP("GridScope-Setup", "GridScope123")) {
-    Serial.println("ERR:DIRECT_WIFI_START_FAILED");
-  }
-  Serial.println("WIFI:DIRECT=GridScope-Setup IP=192.168.50.1 PORTS=80,8080,8081");
-  WiFi.hostname("gridscope");
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.println("WIFI:CONNECTING (use a 2.4 GHz hotspot)");
-  startWebServers();
+
+  delay(500);
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println(" GRIDSCOPE APPLICATION STARTED ");
+  Serial.println("================================");
+
+  Serial.println("INFO:BOOT");
+  Serial.print("INFO:SERIAL_BAUD=");
+  Serial.println(BAUD_RATE);
+  Serial.println("INFO:SENSORS S1=Zone A, S2=Zone B (independent RMS current)");
+
+  // WIFI INITIALIZATION
+
+  startWifi();
+
+  deviceStatus = "CALIBRATING";
+
+  // I2C INITIALIZATION
+
   Wire.begin();
 
-  ads.setGain(GAIN_TWO);   // 🔥 correct for small signal
+  // ADS1115 CONFIGURATION
+
+  ads.setGain(GAIN_TWO);
   ads.setDataRate(RATE_ADS1115_860SPS);
 
   if (!ads.begin()) {
-    sensorStatus = "ERROR: ADS1115_NOT_FOUND. Check ADC power and I2C wiring";
+
+    deviceStatus = "ADS1115_NOT_FOUND";
+
     Serial.println("ERR:ADS1115_NOT_FOUND");
-    return; // Keep health endpoints reachable so the laptop can show this error.
+
+    return;
   }
+
   sensorAvailable = true;
 
+  Serial.println("INFO:ADS1115_DETECTED");
+
   Serial.println("CAL:WAITING_FOR_RAILS");
-  sensorStatus = "WAITING_FOR_RAILS: keep both bulbs OFF";
+
+  // CALIBRATION COUNTDOWN
 
   for (int i = 5; i > 0; i--) {
+
     Serial.print("CAL:COUNTDOWN,");
     Serial.println(i);
-    for (int tick = 0; tick < 100; tick++) { serviceNetwork(); delay(10); }
+
+    for (int tick = 0; tick < 100; tick++) {
+
+      delay(10);
+      serveWifi();
+    }
   }
 
+  // BASELINE CALIBRATION
+
   calibrateBaseline();
-  sensorStatus = "READY";
+
+  deviceStatus = "READY";
+
   Serial.println("INFO:READY");
 }
 
-// ───────────────────────────────────────────────────────
+// =====================================================
+// MAIN LOOP
+// =====================================================
+
 void loop() {
-  serviceNetwork();
-  if (sensorAvailable) readAndSend();
-  else delay(10);
-  serviceNetwork();
+
+  serveWifi();
+
+  if (sensorAvailable) {
+
+    readAndSend();
+
+  } else {
+
+    delay(10);
+  }
+
   yield();
 }

@@ -1,0 +1,38 @@
+async (page) => {
+  page.setDefaultTimeout(10000);
+  const errors=[],apiRequests=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/'))apiRequests.push(request.url());});
+  await page.goto('http://127.0.0.1:5501/templates/index.html');
+  await page.getByRole('link',{name:'Analytics',exact:true}).click();
+  await page.waitForURL('**/templates/analytics.html?demo=1');
+  await page.locator('#report').waitFor({state:'visible'});
+  if(!(await page.locator('#preview-note').isVisible()))throw new Error('Static analytics is missing its preview label');
+  if((await page.locator('#source').textContent())!=='Browser sample data')throw new Error('Preview claimed to be a real database');
+  if(apiRequests.length)throw new Error('Static preview attempted to call a Python API');
+  await page.getByRole('radio',{name:'7 days',exact:true}).check();
+  await page.waitForFunction(()=>document.querySelector('#bucket-label').textContent.includes('Daily'));
+  await page.getByLabel('Readings',{exact:true}).selectOption('LIVE');
+  await page.locator('#empty').waitFor({state:'visible'});
+  await page.getByLabel('Readings',{exact:true}).selectOption('DEMO');
+  await page.locator('#preview-note').waitFor({state:'visible'});
+  await page.setViewportSize({width:390,height:844});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('Analytics preview has horizontal overflow');
+  await page.screenshot({path:'output/playwright/analytics-preview-phone.png'});
+  await page.getByRole('link',{name:'Live dashboard',exact:true}).click();
+  await page.waitForURL('**/templates/index.html');
+  await page.goto('http://127.0.0.1:8876/analytics?mode=DEMO');
+  await page.locator('#report').waitFor({state:'visible'});
+  if((await page.locator('#source').textContent())!=='Local SQLite')throw new Error('Python analytics did not use local SQLite');
+  if(await page.locator('#preview-note').isVisible())throw new Error('Local saved history was replaced with preview data');
+  await page.getByRole('radio',{name:'30 days',exact:true}).check();
+  await page.waitForFunction(()=>!document.querySelector('#report').hidden&&document.querySelector('#table-body').children.length>=30);
+  const oldRow=await page.locator('#table-body tr').first().elementHandle();
+  await page.getByRole('button',{name:'Refresh data',exact:true}).click();
+  await page.waitForFunction(()=>!document.querySelector('#refresh').disabled);
+  if(!(await oldRow.evaluate(el=>el.isConnected)))throw new Error('Unchanged analytics table rebuilt on refresh');
+  await page.setViewportSize({width:1440,height:900});
+  await page.screenshot({path:'output/playwright/analytics-local-desktop.png'});
+  if(errors.length)throw new Error(errors.join('; '));
+  return {staticNavigation:true,previewHasNoApiRequests:true,staticControls:true,localSQLite:true,unchangedTableRetained:true,phoneLayout:true,pageErrors:errors};
+}

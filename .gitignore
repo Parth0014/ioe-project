@@ -1,4 +1,15 @@
 .venv/
+.venv-cloud/
+.env
+.env.*
+!.env.example
+.vercel/
+output/
+public/static/
+.npm-cache/
+.playwright-cli/
+.godmode/
+.gravitas/
 .python/
 .uv-cache/
 __pycache__/

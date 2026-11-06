@@ -1,5 +1,20 @@
 # GridScope energy monitor
 
+## Quick demo: one command
+
+1. Flash `firmware/energy_wifi/energy_wifi.ino` once to the ESP8266.
+2. Connect the laptop to the ESP's Wi-Fi, or put both on the same hotspot.
+3. Run `python app.py`. It starts device discovery, recording, the dashboard,
+   analytics and optional MongoDB uploading together, and opens your browser.
+
+The complete demo works without internet after Python dependencies are installed.
+SQLite saves all readings locally. For an additional MongoDB copy, put your Atlas
+URI in the private `.env` file's `MONGODB_URI` value once. No Vercel deployment,
+dashboard password or separate service command is needed. Uploads require internet
+and Atlas network access; missed uploads retry after reconnecting. The ESP's
+direct setup Wi-Fi alone has no internet, so use a hotspot with internet if you
+want to demonstrate MongoDB writes during the demo.
+
 For the complete teammate walkthrough, including Arduino setup, hotspot
 credentials, flashing, calibration, live operation and troubleshooting, read
 [TEAM_GUIDE.md](TEAM_GUIDE.md).
@@ -17,6 +32,12 @@ CSV locally. No device data or saved database is changed by this mode.
 You can also enable this frontend preview on the Python-served dashboard by
 adding `?demo=1` to its URL (for example `http://127.0.0.1:8765/?demo=1`).
 The normal Python dashboard URL continues to use real telemetry.
+
+The Analytics link also works in this preview and opens explicitly labelled
+browser sample data. Live Server cannot serve Python's `/analytics` route or
+read SQLite. For your actual saved readings, run `python app.py` and open
+`http://127.0.0.1:8765/analytics` (use the port printed in the terminal).
+That page reads local SQLite and does not require MongoDB or internet.
 
 ## Flash once
 
@@ -59,7 +80,7 @@ python -m pip install -r requirements.txt
 Then connect to the ESP Wi-Fi or the phone hotspot and run:
 
 ```powershell
-python server.py
+python app.py
 ```
 
 The dashboard opens automatically while Python scans in the background.
@@ -73,7 +94,10 @@ packets and the full API response. The screen links support browser Back and
 direct links (`/#dashboard` and `/#debugging`); readings keep updating while
 you switch screens.
 
-The full-width Dashboard shows a two-room model facing straight forward, with
+The full-width Dashboard shows the supplied GridScope living/dining model,
+with a sofa, TV console, dining table, open bookcase, plants and central doorway.
+The TV and shelves face the fixed camera so their details remain readable.
+The view faces straight forward, with
 the camera elevated 45 degrees. It automatically fits the model panel on desktop and mobile; the canvas
 has no camera controls or reading overlays. Minimal Zone A/B callouts sit
 outside the model and appear only while their circuit is active; on narrow
@@ -92,13 +116,14 @@ Power-flow animation and room lighting follow fresh circuit readings and stop
 when data goes stale. The surrounding dashboard keeps its neutral light palette.
 Geometry is batched, static shadows are cached, and render resolution is capped.
 The 3D room renders only when lighting or panel size changes.
-The final room image is supersampled for crisp edges, with a six-million-pixel
-budget. Lighting transitions use a lower resolution before restoring the sharp
-final image. Fixture shadow maps are cached at 1024 pixels per face.
-Moving flow dots use a small 2D overlay capped at 60 fps; cached visibility checks keep them
+The drawing buffer stays at a stable resolution during lighting changes, capped
+at 1.5 million pixels (800,000 on lower-power devices) and the display's own density.
+Fixture shadows use cached 512-pixel spotlight maps rather than cube maps.
+Moving flow dots use a small 2D overlay capped at 30 fps; cached visibility checks keep them
 behind furniture. Animation stops when paused, offscreen, in a hidden tab, or
 in Debugging. Offscreen charts and hidden debugging details also skip updates
-until they are visible again.
+until they are visible again. Network polling pauses in hidden tabs, and unchanged
+charts and scan tables keep their existing elements instead of rebuilding.
 Flow pulse counts follow cable length and available screen space, with one
 pulse on the short Zone A branch. Dialogs, screen entrances, and controls use
 brief native browser animations that respect reduced-motion preferences.
@@ -166,8 +191,18 @@ Direct manual checks, if needed: `http://192.168.50.1/health` or
 
 `config.json` controls assumed voltage, tariff, demand threshold, quiet hours
 and reference gains. Watts/Wh are estimates from measured RMS current at
-assumed voltage, not measured real power. Zone B is inferred from feeder
-minus Zone A. Sensor calibration/math retains the original behavior.
+assumed voltage, not measured real power. Each ACS712 measures one separate
+bulb/zone: sensor 1 (ADS1115 A0) is Zone A and sensor 2 (A1) is Zone B.
+New firmware sends `independent=1`; Python uses each current directly and sums
+the two zone power estimates for the monitored total. Sensor 2 can remain active
+when sensor 1 reads zero. There are no theft calculations in the firmware.
+
+Upload the revised sketch and restart Python together. Older packets without
+`independent=1` retain their original feeder/branch interpretation for compatibility.
+Saved history is not recalculated. The existing gain setting names are retained:
+`main_reference_gain` scales sensor 1 and `branch_reference_gain` scales sensor 2
+for independent packets. The firmware retains its startup calibration, sensor
+scale factors and 20 mA noise floor; confirm scaling against your actual sensors.
 
 The default energy-cost estimate uses MSEDCL LT I(B) residential, first 100
 monthly kWh: ₹3.96 energy plus ₹1.60 wheeling = ₹5.56/kWh for FY 2026–27.
@@ -190,7 +225,13 @@ available on the dashboard. Live and demo data are separated. Re-reading a
 cached packet cannot add energy or keep the sensor marked live. Last-known
 values may remain visible after disconnect; their age is shown.
 
-Optional MongoDB sync uses `MONGODB_URI` and `MONGODB_DB` (default
-`energy_monitor`). Keep connection strings out of source files. Without these,
+MongoDB sync uses `MONGODB_URI` and `MONGODB_DB` (default
+`energy_monitor`). Set the URI in `.env` once. The SQLite
+outbox automatically backfills history and retries acknowledged, idempotent
+uploads after disconnections and restarts. Open `/analytics` for recorded energy,
+cost estimates, circuit shares, coverage and 24-hour / 7-day / 30-day trends.
+Hosting is optional and unnecessary for the local demo. If needed later, the
+separate hosted dashboard has its own [Cloud setup](docs/CLOUD_SETUP.md).
+Keep connection strings out of source files. Without these,
 the application works locally. Neither Wi-Fi operation nor local storage needs
 internet after dependencies have been installed.

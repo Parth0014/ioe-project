@@ -15,5 +15,32 @@
   },
   "[vue]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "C_Cpp.errorSquiggles": "disabled",
+  "liveServer.settings.ignoreFiles": [
+    "**/.vscode/**",
+    "**/.git/**",
+    "**/.venv*/**",
+    "**/.python/**",
+    "**/.npm-cache/**",
+    "**/.uv-cache/**",
+    "**/.playwright-cli/**",
+    "**/.godmode/**",
+    "**/.gravitas/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/energy.sqlite3*",
+    "**/.env*",
+    "**/output/**",
+    "**/public/static/**"
+  ],
+  "files.watcherExclude": {
+    "**/.venv*/**": true,
+    "**/.python/**": true,
+    "**/.npm-cache/**": true,
+    "**/.uv-cache/**": true,
+    "**/__pycache__/**": true,
+    "**/output/**": true,
+    "**/energy.sqlite3*": true
   }
 }

@@ -2,7 +2,7 @@
 
 This guide explains the current repository, from entering Wi-Fi credentials and flashing the ESP8266 to demonstrating the dashboard and diagnosing problems. It describes what the code does today. It does not assume that every teammate has used Arduino or Python before.
 
-Reviewed against the repository on **31 October 2026**. Board upload and physical measurement accuracy still need to be checked on the team's actual hardware.
+Measurement mapping updated on **4 November 2026** for one ACS712 per zone. For the current direct-hotspot setup, see [firmware/README.md](firmware/README.md). Other setup sections were reviewed on **31 October 2026**. Board upload and physical measurement accuracy still need to be checked on the team's actual hardware.
 
 ## Contents
 
@@ -30,8 +30,8 @@ There are two separate computers involved: the ESP8266 reads the sensors, and th
 ```text
 Physical lighting circuits
    |
-   +-- Sensor S1: combined feeder current ------> ADS1115 channel 0
-   +-- Sensor S2: Zone A current ---------------> ADS1115 channel 1
+   +-- Sensor S1: Zone A bulb current ----------> ADS1115 channel 0
+   +-- Sensor S2: Zone B bulb current ----------> ADS1115 channel 1
                                                    |
                                                   I2C
                                                    |
@@ -224,9 +224,9 @@ CAL:WAITING_FOR_RAILS
 CAL:COUNTDOWN,5
 ...
 CAL:STARTED
-CAL:BASELINE,total=...,legal=...
+CAL:BASELINE,s1=...,s2=...
 INFO:READY
-DATA,s1_mA=...,s2_mA=...,s1_W=...,s2_W=...,theft_mA=...,theft_W=...
+DATA,s1_mA=...,s2_mA=...,independent=1,boot=...,seq=...
 ```
 
 On joining the hotspot, it also prints a `WIFI:TELEMETRY_URL=http://.../telemetry` line. This can appear at a different point depending on when Wi-Fi connects.
@@ -358,7 +358,7 @@ The ESP exposes:
 An illustrative network packet is:
 
 ```text
-DATA,s1_mA=434.0,s2_mA=174.0,s1_W=99.8,s2_W=40.0,boot=123456,seq=42
+DATA,s1_mA=174.0,s2_mA=260.0,independent=1,boot=123456,seq=42
 ```
 
 These numbers are examples, not readings promised by the hardware. `boot` changes on a restart; `seq` advances with measurements. Python ignores repeated copies of the same `(boot, seq)` pair so a cached HTTP response cannot repeatedly add energy or keep old data fresh.
@@ -376,9 +376,9 @@ Use this order so the team can check one layer at a time:
 | Physical state | Expected result after filtering settles |
 | --- | --- |
 | Both circuits OFF | Both rooms dim; no active-zone callouts; current near zero or below detection |
-| Only Zone A ON | Zone A brightens, its outside label appears, and Zone A/feeder readings increase |
-| Only Zone B ON | Zone B brightens, its outside label appears, and Zone B/feeder readings increase |
-| Both ON | Both rooms brighten, both labels appear, and feeder current represents the combined load |
+| Only Zone A ON | Zone A brightens, its outside label appears, and Zone A/total readings increase |
+| Only Zone B ON | Zone B brightens, its outside label appears, and Zone B/total readings increase |
+| Both ON | Both rooms brighten, both labels appear, and the monitored total represents both zone loads |
 
 Wait several seconds after operating a switch. The existing firmware has a noise floor, and Python uses an eight-sample average for this packet format. The display should not be expected to jump to a perfectly stable value instantly.
 
@@ -433,8 +433,8 @@ The firmware uses an **ADS1115**, not the ESP's built-in analog input:
 
 | Firmware name | ADC channel | Intended signal |
 | --- | --- | --- |
-| `CH_TOTAL` / `s1_mA` | Channel 0 | Combined feeder current |
-| `CH_LEGAL` / `s2_mA` | Channel 1 | Zone A current |
+| `CH_SENSOR1` / `s1_mA` | Channel 0 | Zone A bulb current |
+| `CH_SENSOR2` / `s2_mA` | Channel 1 | Zone B bulb current |
 
 It calls `Wire.begin()` without a custom pin map and `ads.begin()` without a custom address. Confirm the selected board's I2C defaults and the physical ADC address with the hardware teammate. Channel 0/1 here refers to ADS1115 inputs, not ESP GPIO numbers.
 
@@ -452,21 +452,23 @@ Current code values worth knowing:
 | `MIN_CURRENT_MA` | Values below `20.0` mA become zero in firmware |
 | `S2_TRIM_MA` | `0.0` in the current sketch |
 
-The sensitivity comment mentions 100 mV/A, but the calculation actually uses **70.0**. Treat that as an existing project tuning value requiring hardware/reference-meter confirmation; do not silently change it because of the comment. This guide does not certify the sensor scaling.
+The calculation retains **70.0 mV/A** as an existing project tuning value requiring hardware/reference-meter confirmation. Match the scale to the actual ACS712 variant and divider; this guide does not certify measurement accuracy.
 
-For the supplied packet format, Python additionally averages the latest eight samples, starting from a zero-filled buffer, and applies its existing 20 mA cutoff. If the filtered feeder is zero, its legacy rule suppresses the displayed branch current too; diagnostics retain the transmitted readings and flags.
+New firmware marks its packets with `independent=1`. Python uses each transmitted current directly, without the old eight-sample smoothing or the rule that suppressed one sensor when the other was zero. The firmware's 20 mA noise floor still applies independently to each sensor.
 
-### Zone B
+### Independent zones
 
-There are two sensor inputs. Zone B is calculated from the combined feeder minus Zone A:
+Each ACS712 measures its own bulb/zone:
 
 ```text
-Zone B current = feeder current - Zone A current
+Zone A current = sensor 1 current
+Zone B current = sensor 2 current
+Total estimated power = Zone A estimated power + Zone B estimated power
 ```
 
-Small differences have a noise tolerance, at least 15 mA. A materially negative difference is flagged as sensor disagreement and Zone B becomes unresolved rather than displaying a negative load.
+Sensor 2 may read more than sensor 1, or remain active when sensor 1 is zero. Neither case is a mismatch for separate loads. The firmware reports only the two RMS currents and packet metadata; it performs no theft calculation.
 
-Some original firmware identifiers contain `legal` or `theft`. Those names are retained in the sketch/serial output. A difference between sensors is not, by itself, evidence of electricity theft; in this project's two-zone model it represents the second branch or a measurement mismatch.
+Update the sketch and Python together. Unmarked older packets keep their earlier feeder/branch interpretation, including its filtering and difference checks. Historical samples and cumulative energy are preserved rather than retroactively recalculated; new energy intervals are not integrated across a layout change.
 
 ### Power, energy and active-room thresholds
 
@@ -479,7 +481,7 @@ energy increment in Wh = average(previous watts, current watts) x elapsed second
 
 Default assumed voltage is **230 V**, and the power-factor assumption is **1**. Neither mains voltage nor power factor is directly measured by this code. Loads with different power factors can therefore have a different real wattage from the displayed estimate.
 
-Python uses the currents and `config.json` to derive power; it does not rely on the firmware's printed `s1_W` and `s2_W` as authoritative measurements. If you change Python's voltage setting, printed firmware watts can differ from dashboard watts.
+Python uses the two currents and `config.json` to derive estimated power. The revised firmware does not send watt estimates. Neither ACS712 measures mains voltage or power factor.
 
 Energy uses real elapsed time. Integration gaps longer than five seconds are dropped rather than filling a disconnection with assumed consumption. The first accepted measurement after a reset/reconnect establishes a new integration starting point.
 
@@ -522,8 +524,8 @@ Current `config.json` defaults:
 | `quiet_start_hour` | `20` | Start of quiet hours, using the server's local clock |
 | `quiet_end_hour` | `8` | End of quiet hours |
 | `active_current_ma` | `35.0` | Minimum configured current for visual activity |
-| `main_reference_gain` | `1.0` | Feeder current correction multiplier |
-| `branch_reference_gain` | `1.0` | Zone A current correction multiplier |
+| `main_reference_gain` | `1.0` | Sensor 1 / Zone A correction multiplier (name retained for saved settings) |
+| `branch_reference_gain` | `1.0` | Sensor 2 / Zone B correction multiplier (name retained for saved settings) |
 
 Keep valid JSON: double-quoted keys, numeric values and no trailing comma. Stop the server before manually editing its settings, then restart it. Do not change gains merely to make readings look desirable; check against a trusted reference first.
 
@@ -642,7 +644,7 @@ Invoke-RestMethod http://127.0.0.1:8765/api/state
 | `READY` but telemetry is stale | Check that `seq` changes. Keep both circuits off if resetting the ESP for another calibration. |
 | Serial Monitor shows data but dashboard does not | Serial and Wi-Fi are separate paths. Check Python's mode, its selected ESP endpoint and the browser URL. |
 | Small readings show zero or rooms stay dim | Firmware/server filtering and the 35 mA activity threshold can suppress small loads. Compare the raw packet with processed values. |
-| Zone B shows unresolved / sensor mismatch | Check sensor placement, scaling and whether the branch reading exceeds the combined feeder beyond tolerance. |
+| Zone B shows unresolved / sensor mismatch | Check that both the sketch and Python are updated and the packet contains `independent=1`. Older unmarked packets still use feeder/branch difference checks. |
 | A switch change takes a few seconds to settle | Eight-sample smoothing and the two-second browser fetch interval are expected; wait before interpreting it as failure. |
 | The page works without an ESP and has a preview menu | Check whether it is Live Server or has `?demo=1`. Use the normal Python URL for physical measurements. |
 | Cost is tiny | Wh is divided by 1000 before applying a per-kWh rate. Four Wh is only 0.004 kWh. |
@@ -681,9 +683,9 @@ MONGODB_URI
 MONGODB_DB   (default: energy_monitor)
 ```
 
-Set actual credentials locally; never put them in this guide or a committed file. `cloud.py` queues samples/events and retries failed connections. The queue is in memory, not a durable replay queue: unsent entries do not survive a Python restart, and old SQLite rows are not automatically backfilled.
+Run `python configure_cloud.py` for hidden credential input and private `.env` setup; never put credentials in this guide or a committed file. `cloud.py` uses a transactional SQLite outbox and destination-scoped checkpoints. Unsent entries survive restarts, existing SQLite history is backfilled, and idempotent MongoDB upserts make partial batches safe to retry. Keep the entire SQLite database when backing up the gateway identity and upload state.
 
-When cloud reads succeed, `/api/dashboard` may use MongoDB history/totals and identifies `source: mongodb`. Otherwise local data remains available. Displayed cloud-derived energy cost is recalculated using the currently configured rate rather than trusting an older stored cost.
+The local `/api/dashboard` always uses SQLite so an upload backlog cannot replace fresh local totals with older cloud totals. `/analytics` adds usage trends, energy deltas, estimated cost, circuit shares, recording coverage and CSV summaries. The separate hosted app reads device-scoped Atlas history and requires sign-in. Read [Cloud setup](docs/CLOUD_SETUP.md) for the Vercel environment, private configuration, access roles and end-to-end checks. Cloud and local cost estimates use the current configured rate.
 
 ## 15. Files and responsibilities
 

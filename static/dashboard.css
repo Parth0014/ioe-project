@@ -136,6 +136,9 @@ h1{font-size:clamp(26px,2vw,35px);margin:4px 0 5px}
 .scene[data-active-a=true] .callout-a,.scene[data-active-b=true] .callout-b{opacity:1;visibility:visible}
 .preview-pause{width:100%;min-height:38px;margin-top:12px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--muted);font-size:11px}
 
+/* Demand updates stay on the compositor instead of animating layout width. */
+.demand-track span{width:100%;transform:scaleX(0);transform-origin:left;transition:transform .25s var(--ease)}
+
 /* Short compositor transitions; no animation loop or persistent layer promotion. */
 .preview-menu{opacity:0;transform:translateY(12px) scale(.97);transform-origin:bottom right;transition:opacity 160ms ease,transform 240ms var(--ease),display 240ms allow-discrete,overlay 240ms allow-discrete}
 .preview-menu:popover-open{opacity:1;transform:translateY(0) scale(1)}

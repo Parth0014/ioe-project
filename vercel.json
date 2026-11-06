@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "flask",
+  "functions": {
+    "app.py": {
+      "maxDuration": 60,
+      "includeFiles": "{templates/**,static/electricity-tariff.json}",
+      "excludeFiles": "{.venv/**,.venv-cloud/**,.python/**,.uv-cache/**,tests/**,firmware/**,output/**,.git/**,.gravitas/**,energy.sqlite3*,.env*}"
+    }
+  }
+}

@@ -74,24 +74,31 @@ def derive(data: dict[str, float], settings: Settings) -> dict[str, Any]:
     """Assumes both bulbs are predominantly resistive; 230V is configurable NOT measured."""
     s1 = data["s1_mA"] * settings.main_reference_gain
     s2 = data["s2_mA"] * settings.branch_reference_gain
+    independent = data.get("independent") == 1
     noise1 = data.get("s1_noise_mA", 0) * settings.main_reference_gain
     noise2 = data.get("s2_noise_mA", 0) * settings.branch_reference_gain
     tolerance_ma = max(15.0, 3.0 * math.hypot(noise1, noise2))
-    residual = s1 - s2  # retain signed residual, never silently overwrite
+    residual = None if independent else s1 - s2
     flags: list[str] = []
     new_protocol = "s1_raw_mA" in data and "idle_valid" in data
-    if not new_protocol:
+    if not new_protocol and not independent:
         flags.append("LEGACY_FIRMWARE_FILTERS: original ESP8266 noise floor + 8-sample Python smoothing")
         if data.get("legacy_zero_clamped", 0) != 0:
             flags.append("LEGACY_MAIN_ZERO_RULE: downstream reading suppressed in filtered display; transmitted value preserved")
-    elif data.get("idle_valid") != 1:
+    elif new_protocol and data.get("idle_valid") != 1:
         flags.append("IDLE_UNCALIBRATED: both bulbs OFF → Capture idle noise")
     if data.get("clip", 0) != 0:
         flags.append("ADC_CLIPPING: measurements may be invalid")
-    if residual < -tolerance_ma:
+    if independent:
+        total = s1 + s2
+        branch_a = s1
+        branch_b = s2
+    elif residual < -tolerance_ma:
+        total, branch_a = s1, s2
         flags.append("METER_MISMATCH: branch sensor > main feeder")
         branch_b = None
     else:
+        total, branch_a = s1, s2
         branch_b = max(0.0, residual)
         if abs(residual) < tolerance_ma:
             flags.append("BRANCH_B_NEAR_NOISE: difference not independently reliable")
@@ -99,20 +106,21 @@ def derive(data: dict[str, float], settings: Settings) -> dict[str, Any]:
     # Powers are ESTIMATES, not direct voltage/power factor measurements.
     good = data.get("clip", 0) == 0
     return {
-        "main_ma": round(s1, 3), "branch_a_ma": round(s2, 3),
+        "main_ma": round(total, 3), "branch_a_ma": round(branch_a, 3),
         "branch_b_ma": round(branch_b, 3) if branch_b is not None else None,
-        "signed_residual_ma": round(residual, 3),
+        "signed_residual_ma": round(residual, 3) if residual is not None else None,
         "raw_main_ma": data.get("s1_raw_mA", data.get("s1_transmitted_mA")),
         "raw_branch_ma": data.get("s2_raw_mA", data.get("s2_transmitted_mA")),
-        "main_w": round(voltage * s1 / 1000, 3),
-        "branch_a_w": round(voltage * s2 / 1000, 3),
+        "main_w": round(voltage * total / 1000, 3),
+        "branch_a_w": round(voltage * branch_a / 1000, 3),
         "branch_b_w": round(voltage * branch_b / 1000, 3) if branch_b is not None else None,
         "sensor_noise_main_ma": round(noise1, 3),
         "sensor_noise_branch_ma": round(noise2, 3),
         "estimated": True, "voltage_source": "ASSUMED", "pf_assumption": 1,
         "valid_for_energy": good,
         "idle_calibrated": data.get("idle_valid") == 1 if new_protocol else None,
-        "firmware": "energy_monitor_v1" if new_protocol else "legacy",
+        "firmware": "energy_monitor_independent_v1" if independent else "energy_monitor_v1" if new_protocol else "legacy",
+        "sensor_layout": "independent" if independent else "feeder_branch",
         "sample_window_ms": data.get("window_ms"),
         "seq": data.get("seq"),
         "tolerance_ma": round(tolerance_ma, 3), "flags": flags,

@@ -7,7 +7,7 @@
 <div class="wrap">
 <header class="app-header">
 <a class="brand" href="#dashboard" aria-label="GridScope dashboard"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M8 9h11v9h9M8 27h11v-9M8 18h11"/><circle cx="8" cy="9" r="3"/><circle cx="8" cy="18" r="3"/><circle cx="8" cy="27" r="3"/><circle cx="28" cy="18" r="3"/></svg><span>GridScope<small>Energy monitor</small></span></a>
-<nav class="view-nav" aria-label="Main navigation"><a href="#dashboard" id="nav-dashboard" aria-current="page">Dashboard</a><a href="#debugging" id="nav-debugging">Debugging</a></nav>
+<nav class="view-nav" aria-label="Main navigation"><a href="#dashboard" id="nav-dashboard" aria-current="page">Dashboard</a><a href="/analytics" id="nav-analytics">Analytics</a><a href="#debugging" id="nav-debugging">Debugging</a></nav>
 <div class="header-actions"><a class="export-link" href="/api/export.csv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg>Export data</a></div>
 </header>
 <main>
@@ -38,7 +38,7 @@
 </div>
 </section>
 <aside class="telemetry-panel" aria-label="Energy readings">
-<div class="main-reading"><div class="section-label"><span class="feeder-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m13.5 3-8 10h6l-1 8 8-11h-6z"/></svg></span><span>Main feeder</span></div><div class="hero-value"><span id="vM">—</span><small>W</small></div><p class="measurement-label">Estimated power</p><div class="formula"><span id="nM">— mA</span><span id="voltage-assumption">230 V assumed</span></div><div class="demand-track"><span id="demand-fill"></span></div><div class="demand-caption"><span>Demand threshold</span><strong id="demand-limit">— W</strong></div></div>
+<div class="main-reading"><div class="section-label"><span class="feeder-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m13.5 3-8 10h6l-1 8 8-11h-6z"/></svg></span><span>Total monitored</span></div><div class="hero-value"><span id="vM">—</span><small>W</small></div><p class="measurement-label">Estimated power</p><div class="formula"><span id="nM">— mA</span><span id="voltage-assumption">230 V assumed</span></div><div class="demand-track"><span id="demand-fill"></span></div><div class="demand-caption"><span>Demand threshold</span><strong id="demand-limit">— W</strong></div></div>
 <div class="circuit-list"><div class="section-label">Lighting circuits</div>
 <div class="circuit-card zone-a"><span class="circuit-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="bulb-glass" d="M8.5 15.5c0-2-2.5-2.5-2.5-6a6 6 0 0 1 12 0c0 3.5-2.5 4-2.5 6z"/><path d="M9 18h6m-5 3h4m-2-6V11m-2-1 2 1 2-1"/></svg></span><span class="circuit-name"><strong>Zone A</strong><em id="zone-a-status">Waiting for data</em></span><span class="circuit-reading"><b id="vA">—</b><small> W</small><span id="nA">— mA</span></span></div>
 <div class="circuit-card zone-b"><span class="circuit-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="bulb-glass" d="M8.5 15.5c0-2-2.5-2.5-2.5-6a6 6 0 0 1 12 0c0 3.5-2.5 4-2.5 6z"/><path d="M9 18h6m-5 3h4m-2-6V11m-2-1 2 1 2-1"/></svg></span><span class="circuit-name"><strong>Zone B</strong><em id="zone-b-status">Waiting for data</em></span><span class="circuit-reading"><b id="vB">—</b><small> W</small><span id="nB">— mA</span></span></div>
@@ -48,8 +48,8 @@
 </aside>
 </div>
 <div class="analytics-grid">
-<section class="panel trend-panel"><div class="panel-heading"><div><h2>Power over time</h2><p id="chart-range">Waiting for recorded samples</p></div><div class="legend"><span><i class="feed"></i>Feeder</span><span><i class="zone-a"></i>Zone A</span><span><i class="zone-b"></i>Zone B</span></div></div><div class="chart-wrap"><svg id="chart" viewBox="0 0 900 210" role="img" aria-label="Estimated power history in watts"></svg><p id="chart-empty">Your power history will appear as readings arrive.</p></div></section>
-<section class="panel split-panel"><div class="panel-heading"><div><h2>Where energy is used</h2><p>Recorded circuit energy</p></div><span class="tiny-tag">Wh</span></div><div class="split-content"><div class="energy-ring" id="energy-ring"><div><b id="split-total">—</b><span>circuit Wh</span></div></div><div class="split-readings"><div><span><i class="zone-a"></i>Zone A</span><b id="tA">—</b></div><div><span><i class="zone-b"></i>Zone B</span><b id="tB">—</b></div><div class="feeder-total"><span>Total feeder</span><b id="tT">—</b></div><p id="sTxt">Waiting for data</p></div></div></section>
+<section class="panel trend-panel"><div class="panel-heading"><div><h2>Power over time</h2><p id="chart-range">Waiting for recorded samples</p></div><div class="legend"><span><i class="feed"></i>Total</span><span><i class="zone-a"></i>Zone A</span><span><i class="zone-b"></i>Zone B</span></div></div><div class="chart-wrap"><svg id="chart" viewBox="0 0 900 210" role="img" aria-label="Estimated power history in watts"></svg><p id="chart-empty">Your power history will appear as readings arrive.</p></div></section>
+<section class="panel split-panel"><div class="panel-heading"><div><h2>Where energy is used</h2><p>Recorded circuit energy</p></div><span class="tiny-tag">Wh</span></div><div class="split-content"><div class="energy-ring" id="energy-ring"><div><b id="split-total">—</b><span>circuit Wh</span></div></div><div class="split-readings"><div><span><i class="zone-a"></i>Zone A</span><b id="tA">—</b></div><div><span><i class="zone-b"></i>Zone B</span><b id="tB">—</b></div><div class="feeder-total"><span>Total monitored</span><b id="tT">—</b></div><p id="sTxt">Waiting for data</p></div></div></section>
 </div>
 
 </section>
