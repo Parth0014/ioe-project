@@ -1,15 +1,14 @@
-# Usage: .\run_windows.ps1 (automatically finds the Wi-Fi board)
+# Usage: .\run_windows.ps1 (automatically detects a USB serial board)
 #        .\run_windows.ps1 -Port COM3
 #        .\run_windows.ps1 -Demo
 param(
     [string]$Port = "",
     [switch]$Demo,
-    [string]$DeviceUrl = "",
     [int]$WebPort = 8765
 )
 $ErrorActionPreference = "Stop"
-if (([int][bool]$Port + [int][bool]$Demo + [int][bool]$DeviceUrl) -gt 1) {
-    throw "Choose only one of -Port, -Demo or -DeviceUrl"
+if ($Port -and $Demo) {
+    throw "Choose only one of -Port or -Demo"
 }
 Set-Location $PSScriptRoot
 function Test-ProjectPython([string]$Candidate) {
@@ -44,7 +43,6 @@ if (-not $dependenciesReady) {
 }
 $dashboardArgs = @("app.py", "--web-port", [string]$WebPort, "--open-browser")
 if ($Demo) { $dashboardArgs += "--demo" }
-elseif ($DeviceUrl) { $dashboardArgs += @("--device-url", $DeviceUrl) }
 elseif ($Port) { $dashboardArgs += @("--port", $Port) }
 Write-Host "Open http://127.0.0.1:$WebPort" -ForegroundColor Cyan
 & $venvPython @dashboardArgs

@@ -13,18 +13,15 @@
 <main>
 <section id="debug-screen" aria-labelledby="debug-heading" hidden>
 <h2 class="screen-title" id="debug-heading" tabindex="-1">Developer debugging</h2>
-<p class="screen-intro">Connection checks, device health and the data received by the server.</p>
+<p class="screen-intro">USB serial connection and the data received by the server.</p>
 <div class="note" id="connection-detail" role="status" style="margin-bottom:14px"></div>
-<section class="card debug" id="network-debug" aria-label="Connection diagnostics">
-<h2>Connection check <span id="scan-phase" class="debug-status" role="status">Starting</span></h2>
-<p>Python checks the configured address ranges and ports. Live readings are shown on the Dashboard screen.</p>
-<div class="note" id="scan-summary">Preparing scan...</div>
-<progress id="scan-progress" value="0" max="1" aria-label="Address scan progress"></progress>
-<div id="device-status" class="debug-status"></div>
-<details open><summary>Recent address checks</summary><div class="scan-log"><table><thead><tr><th>Address</th><th>Result</th><th>Time</th><th>Details</th></tr></thead><tbody id="scan-results"></tbody></table></div></details>
-<p>If nothing responds: connect the laptop to <b>GridScope-Setup</b> (password <b>GridScope123</b>). The ESP is at <code>192.168.50.1</code> on ports <code>80, 8080, 8081</code>. Python retries automatically.</p>
+<section class="card debug" aria-label="USB serial connection">
+<h2>USB serial <span id="serial-status" class="debug-status" role="status">Waiting</span></h2>
+<p>Connect the ESP8266 to this computer with a USB data cable. The cable supplies power and carries readings to the dashboard.</p>
+<div class="note" id="serial-summary">Waiting for a serial port.</div>
+<p>If no port appears, close Arduino Serial Monitor and check the USB data cable and Windows device driver.</p>
 </section>
-<section class="card debug" aria-label="Device data"><h2>Device data</h2><h3>Health response</h3><pre id="device-response">No device response yet</pre><h3>Last sensor packet</h3><code id="raw-packet">No sensor packet yet</code></section>
+<section class="card debug" aria-label="Device data"><h2>Device data</h2><h3>Last sensor packet</h3><code id="raw-packet">No sensor packet yet</code></section>
 <section class="card debug" aria-label="Full server response"><h2>Full server response</h2><p>The latest dashboard API response, including measurement flags, settings, totals and history.</p><pre class="debug-state" id="api-response">Waiting for server response...</pre></section>
 </section>
 <section id="dashboard-screen" aria-labelledby="dashboard-heading">

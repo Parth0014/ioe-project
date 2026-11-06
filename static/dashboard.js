@@ -1,7 +1,7 @@
 ﻿const $ = id => document.getElementById(id);
 const f = (value, digits=1) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(digits);
 let latestState = null, receivedAt = 0, energyScene = null, sceneFailed = false, motionPaused = false;
-let chartVisible=false,lastEventsKey='',lastChartKey='',lastScanKey='';
+let chartVisible=false,lastEventsKey='',lastChartKey='';
 let pollTimer=0,pollController=null,polling=false;
 const setText=(id,value)=>{const node=$(id);if(node&&node.textContent!==value)node.textContent=value;};
 const frontendPreview = new URLSearchParams(location.search).get('demo') === '1' || location.pathname.includes('/templates/');
@@ -171,17 +171,10 @@ function renderDebug(s) {
   if($('debug-screen').hidden||document.hidden)return;
   setText('api-response',JSON.stringify(s,null,2));
   $('connection-detail').textContent=(s.transport||'USB serial')+(s.port?' · '+s.port:'')+' · '+(s.error|| (s.connection==='CONNECTED'?'Receiving live readings':s.connection==='SIMULATION'?'Simulated readings':'Waiting for sensor readings'))+(s.age_seconds!=null?' · Last sample '+f(s.age_seconds,1)+' s ago':'');
-  $('network-debug').hidden=s.transport!=='Wi-Fi';
-  const scan=s.scan||{};$('scan-phase').textContent=scan.phase||'Starting';
-  $('scan-summary').textContent=`Round ${scan.round||0} · ${scan.attempted||0}/${scan.total||0} checked · Ranges: ${(scan.ranges||[]).join(', ')||'detecting'} · Ports: ${(scan.ports||[]).join(', ')||'loading'}`;
-  $('scan-progress').max=Math.max(1,scan.total||0);$('scan-progress').value=scan.attempted||0;
-  $('device-status').textContent=s.device_health?'ESP sensor: '+s.device_health.status:'No ESP response yet';
-  $('device-response').textContent=s.device_health?JSON.stringify(s.device_health,null,2):'No device response yet';$('raw-packet').textContent=s.last_packet||'No sensor packet yet';
-  const scanKey=JSON.stringify(scan.results||[]);
-  if(scanKey===lastScanKey)return;
-  lastScanKey=scanKey;
-  const rows=$('scan-results');rows.replaceChildren();
-  [...(scan.results||[])].reverse().forEach(result=>{const tr=document.createElement('tr');if(result.result==='FOUND')tr.className='scan-found';[result.url,result.result,result.ms+' ms',result.detail].forEach(value=>{const td=document.createElement('td');td.textContent=value;tr.append(td)});rows.append(tr)});
+  const connected=s.connection==='CONNECTED';
+  $('serial-status').textContent=connected?'Connected':s.connection==='SIMULATION'?'Simulation':'Waiting';
+  $('serial-summary').textContent=(s.port?'Port '+s.port+' · ':'')+(s.error|| (connected?'Receiving live readings':s.connection==='SIMULATION'?'Simulated readings':'Connect the board using a USB data cable.'));
+  $('raw-packet').textContent=s.last_packet||'No sensor packet yet';
 }
 async function tick() {
   if(document.hidden||polling)return;
@@ -218,7 +211,7 @@ async function startFrontendPreview() {
     const reading={main_ma:a+b,branch_a_ma:a,branch_b_ma:b,main_w:(a+b)*.23,branch_a_w:a*.23,branch_b_w:b*.23,tolerance_ma:15,timestamp:Date.now()/1000};
     totals.total_wh+=reading.main_w*dt/3600;totals.a_wh+=reading.branch_a_w*dt/3600;totals.b_wh+=reading.branch_b_w*dt/3600;totals.cost_inr=tariff?totals.total_wh/1000*tariff.rate_inr_per_kwh:null;
     history.push({...reading});if(history.length>120)history.shift();
-    renderState({mode:'DEMO',connection:'SIMULATION',transport:'Frontend preview',port:null,age_seconds:0,latest:reading,last_known:null,totals:{...totals},tariff,settings:{assumed_voltage_v:230,tariff_inr_per_kwh:tariff?.rate_inr_per_kwh,peak_demand_w:85,active_current_ma:35},history:[...history],cloud:{enabled:false,ok:false,queued:0},source:'preview',error:'',scan:{phase:'Frontend preview; network scanning is disabled',results:[]},device_health:{device:'Frontend preview',status:'SIMULATED'},last_packet:'Frontend preview: '+selected,events:[{timestamp:now,kind:'info',title:'Frontend preview',details:'Sample readings for refining the interface. No device is connected.'}]});
+    renderState({mode:'DEMO',connection:'SIMULATION',transport:'Frontend preview',port:null,age_seconds:0,latest:reading,last_known:null,totals:{...totals},tariff,settings:{assumed_voltage_v:230,tariff_inr_per_kwh:tariff?.rate_inr_per_kwh,peak_demand_w:85,active_current_ma:35},history:[...history],cloud:{enabled:false,ok:false,queued:0},source:'preview',error:'',last_packet:'Frontend preview: '+selected,events:[{timestamp:now,kind:'info',title:'Frontend preview',details:'Sample readings for refining the interface. No device is connected.'}]});
     document.querySelectorAll('[data-preview]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.preview===selected)));
   }
   document.querySelectorAll('[data-preview]').forEach(button=>button.addEventListener('click',()=>{selected=button.dataset.preview;publish();}));

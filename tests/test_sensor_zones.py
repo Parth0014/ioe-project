@@ -35,7 +35,7 @@ class IndependentSensorTests(unittest.TestCase):
         self.assertEqual(reading['branch_a_ma'], 60)
         self.assertEqual(reading['branch_b_ma'], 40)
 
-    def test_zone_b_only_reaches_dashboard_and_records_its_own_energy(self):
+    def test_zone_b_only_serial_packet_reaches_dashboard_and_records_energy(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(server, 'DB', Path(directory) / 'energy.sqlite3'), \
                  patch.object(server, 'CONFIG', Path(directory) / 'config.json'), \
@@ -44,8 +44,10 @@ class IndependentSensorTests(unittest.TestCase):
                 try:
                     with patch('server.time.monotonic', side_effect=[10, 12]):
                         for seq in (1, 2):
-                            server.accept_network_packet(engine,
-                                f'DATA,s1_mA=0,s2_mA=260,independent=1,boot=1,seq={seq}'.encode())
+                            packet = parse_data(
+                                f'DATA,s1_mA=0,s2_mA=260,independent=1,boot=1,seq={seq}'
+                            )
+                            engine.accept(packet)
                     state = server.create_app(engine).test_client().get('/api/dashboard').json
                     self.assertEqual(state['latest']['branch_a_ma'], 0)
                     self.assertEqual(state['latest']['branch_b_ma'], 260)
@@ -55,8 +57,6 @@ class IndependentSensorTests(unittest.TestCase):
                     self.assertEqual(state['totals']['total_wh'], state['totals']['b_wh'])
                     self.assertEqual(state['calibration_status'], 'AUTO_ON_FIRMWARE_BOOT')
                     self.assertFalse(engine.request_idle_calibration())
-                    self.assertFalse(server.accept_network_packet(engine,
-                        b'DATA,s1_mA=0,s2_mA=260,independent=1,boot=1,seq=2'))
                 finally:
                     engine.cloud.close()
 

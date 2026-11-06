@@ -16,8 +16,8 @@ per frame, rather than reducing measurement accuracy or removing the model.
 - Pause, reduced motion, offscreen panels, debugging and background tabs stop
   continuous rendering. Background tabs also stop dashboard API polling.
 - Large panels no longer fade/translate in front of a loading model. Demand
-  bars animate scale rather than layout width. Unchanged charts, scan tables,
-  analytics rows and events retain their existing DOM.
+  bars animate scale rather than layout width. Unchanged charts, analytics
+  rows and events retain their existing DOM.
 - Live Server and VS Code watchers exclude the recording database, virtual
   environments, tool caches and generated output. Sensor writes should not
   repeatedly trigger a preview reload. Restart Live Server after changing its
@@ -78,7 +78,7 @@ CSV export and refresh error recovery.
 
 Keep `.python` and `.venv-cloud` on this workstation: the working environment
 depends on that Python runtime. They are ignored, not web assets, and do not get
-loaded into the browser. `.env`, the real SQLite database and Wi-Fi credentials
-are also ignored. Tool caches, obsolete test snapshots, generated CDN copies and
+loaded into the browser. `.env` and the real SQLite database are also ignored.
+Tool caches, obsolete test snapshots, generated CDN copies and
 the old environment pointing to a missing Python installation can be removed.
 The optional hosted dashboard is retained separately from local startup.

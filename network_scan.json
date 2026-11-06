@@ -1,6 +1,0 @@
-{
-  "ranges": ["auto", "192.168.50.1/32"],
-  "ports": [80, 8080, 8081],
-  "timeout_seconds": 0.7,
-  "workers": 24
-}

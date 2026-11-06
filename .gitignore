@@ -15,4 +15,3 @@ public/static/
 __pycache__/
 *.pyc
 energy.sqlite3*
-firmware/energy_wifi/wifi_config.h

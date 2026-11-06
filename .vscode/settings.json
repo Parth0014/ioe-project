@@ -1,4 +1,7 @@
 {
+  "terminal.integrated.env.windows": {
+    "PATH": "${workspaceFolder}\\.venv-cloud\\Scripts;${workspaceFolder}\\.python\\cpython-3.12.8-windows-x86_64-none;${env:PATH}"
+  },
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "[javascript]": {

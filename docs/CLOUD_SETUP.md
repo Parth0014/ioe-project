@@ -1,11 +1,11 @@
 # GridScope cloud dashboard on Vercel
 
-The laptop collects ESP8266 telemetry, stores it in SQLite, and uploads it to
-Atlas. Vercel serves the dashboard and queries Atlas; it does not scan your Wi-Fi
-or collect readings when the laptop is off. The laptop needs internet as well as
-access to the ESP. Its direct setup Wi-Fi alone does not provide internet.
+The laptop collects ESP8266 telemetry over USB serial, stores it in SQLite, and
+uploads it to Atlas. Vercel serves the hosted dashboard and queries Atlas. USB
+telemetry and local storage work without internet; Atlas uploads and hosted
+access need internet on the laptop.
 
-## 1. Connect the laptop privately
+## 1. Configure the optional cloud copy
 
 Install Python 3.10+ and run from the project directory:
 

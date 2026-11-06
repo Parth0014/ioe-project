@@ -1,48 +1,45 @@
-# ESP8266 Wi-Fi firmware
+# ESP8266 USB serial firmware
 
-The sketch creates its own Wi-Fi network before checking the ADS1115. USB supplies power and remains available for optional serial diagnostics.
+The ESP8266 sends live readings directly to the computer over its USB serial
+connection. The USB cable powers the board and carries data; no wireless setup
+is used. A charge-only cable supplies power but cannot carry readings.
 
-## Connect and run
+## Upload and start
 
-1. Keep both bulbs OFF during power-up and calibration.
-2. Upload `energy_wifi/energy_wifi.ino` with the ESP8266 board package and Adafruit ADS1X15 dependencies installed.
-3. Connect the laptop to **GridScope-Setup**, password **GridScope123**. Choose to stay connected if Windows warns that there is no internet.
-4. Open **http://192.168.50.1/health**. The status is `CALIBRATING`, `READY`, or `ADS1115_NOT_FOUND`. With no ADC connected, the hotspot and health endpoint still work; readings are unavailable.
-5. From the project root run `.\.venv-cloud\Scripts\python.exe server.py` for existing network discovery, then open the dashboard URL printed in the terminal. Do not use `--port` for Wi-Fi mode.
+1. In Arduino IDE, open `energy_usb/energy_usb.ino` and select the ESP8266
+   board and its USB COM port.
+2. Install the ESP8266 board package and Adafruit ADS1X15 library if needed,
+   then upload the sketch.
+3. Close Arduino Serial Monitor so Python can take control of the COM port.
+4. Connect the ADS1115 and sensors, then run `python app.py` from the project
+   root. If automatic port selection chooses the wrong serial device, specify
+   it with `python app.py --port COM5`.
+5. Keep both bulbs off during the firmware startup calibration.
 
-The ESP serves `/`, `/health` and `/telemetry` on ports **80, 8080 and 8081**. `/telemetry` returns HTTP 503 until a real measurement exists. Each DATA measurement includes boot and sequence IDs so repeated HTTP requests do not count cached readings as new samples. The application serial baud is **115200**.
+The firmware communicates at **115200 baud**. Opening the serial port restarts
+the ESP8266, which performs calibration before publishing readings. The board
+prints `INFO:READY` when sampling is ready and then emits one `DATA,...` line
+per measurement. If the ADS1115 is missing, it prints
+`ERR:ADS1115_NOT_FOUND` and sends no fabricated readings.
 
-## Independent zone currents
+## Sensor mapping
 
-- ACS712 sensor 1, ADS1115 **A0**: current consumed by the **Zone A bulb**.
-- ACS712 sensor 2, ADS1115 **A1**: current consumed by the **Zone B bulb**.
-- Each sensor measures a separate load. A zero on one channel does not suppress the other.
+- ACS712 sensor 1, ADS1115 A0: Zone A bulb current.
+- ACS712 sensor 2, ADS1115 A1: Zone B bulb current.
+- Each channel is measured independently; one zero channel does not suppress
+  the other.
 
-The current-only packet is:
+The firmware calculates RMS current and applies the configured 20 mA cutoff.
+Python maps currents to estimated watts and watt-hours using the configured
+assumed voltage. This is an estimate, not revenue-grade real-power measurement.
+Confirm the scale against the actual ACS712 variant and a reference meter.
 
-```text
-DATA,s1_mA=175.0,s2_mA=260.0,independent=1,boot=123456,seq=42
-```
+## Troubleshooting
 
-The sketch calculates each sensor's RMS current independently. It does not
-subtract sensors or report theft. Python maps S1 to Zone A and S2 to Zone B,
-then estimates zone watts/Wh using its configured assumed voltage. Update the
-sketch and Python server together; unmarked older packets keep their original
-feeder/branch mapping. Previously recorded history is not recalculated.
+- No COM port: use a USB data cable and install the board's USB-to-serial
+  driver (commonly CH340 or CP210x).
+- Port is busy: close Serial Monitor and any other program using that port.
+- `ADS1115_NOT_FOUND`: check converter power, SDA/SCL wiring and I2C address.
+- No live readings: wait for `INFO:READY`, confirm the correct port in the
+  dashboard's Debugging screen, then check the last serial packet.
 
-Calibration uses both bulbs OFF and a separate baseline for each sensor.
-The existing sensitivity (70 mV/A), divider compensation (2.0), ADC gain and
-20 mA cutoff remain unchanged. These are project settings, not a certification
-of sensor accuracy; verify the scale against the actual ACS712 variant and
-reference measurements before relying on consumption estimates.
-
-This direct hotspot does not join a phone hotspot or provide internet. It needs no private router credentials. Change the setup password in the sketch before use in a shared environment.
-
-## Recovery
-
-- No network named GridScope-Setup after a USB power cycle: startup is still failing; changing transport cannot fix a sketch that never starts.
-- `ADS1115_NOT_FOUND`: power off before reconnecting ADC wiring, then reset with both bulbs OFF. No fabricated readings are published.
-- Calibration runs at startup; keep loads off until `/health` reports READY. Dashboard calibration commands are not implemented; reset to recalibrate.
-- USB boot text uses 74880 baud; sketch diagnostics use 115200.
-
-These instructions supersede older firmware instructions about USB-only operation or phone-hotspot credentials. The root guides may describe an older station-mode firmware.

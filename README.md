@@ -2,21 +2,21 @@
 
 ## Quick demo: one command
 
-1. Flash `firmware/energy_wifi/energy_wifi.ino` once to the ESP8266.
-2. Connect the laptop to the ESP's Wi-Fi, or put both on the same hotspot.
-3. Run `python app.py`. It starts device discovery, recording, the dashboard,
+1. Flash `firmware/energy_usb/energy_usb.ino` to the ESP8266.
+2. Connect the ESP8266 to the laptop with a USB data cable.
+3. Run `python app.py`. It connects over USB serial, records data, starts the dashboard,
    analytics and optional MongoDB uploading together, and opens your browser.
 
 The complete demo works without internet after Python dependencies are installed.
 SQLite saves all readings locally. For an additional MongoDB copy, put your Atlas
 URI in the private `.env` file's `MONGODB_URI` value once. No Vercel deployment,
 dashboard password or separate service command is needed. Uploads require internet
-and Atlas network access; missed uploads retry after reconnecting. The ESP's
-direct setup Wi-Fi alone has no internet, so use a hotspot with internet if you
-want to demonstrate MongoDB writes during the demo.
+and Atlas network access; missed uploads retry after reconnecting. USB powers
+the ESP8266 and carries its readings to the computer. A charge-only cable will
+power the board but cannot transfer data.
 
-For the complete teammate walkthrough, including Arduino setup, hotspot
-credentials, flashing, calibration, live operation and troubleshooting, read
+For the complete teammate walkthrough, including Arduino setup, USB serial,
+flashing, calibration, live operation and troubleshooting, read
 [TEAM_GUIDE.md](TEAM_GUIDE.md).
 
 ## Frontend preview without hardware
@@ -41,55 +41,37 @@ That page reads local SQLite and does not require MongoDB or internet.
 
 ## Flash once
 
-1. Open `firmware/energy_wifi/energy_wifi.ino` in Arduino IDE.
-2. Enter your phone hotspot name/password in the `wifi_config.h` tab. Keep that
-   file private. Select your ESP8266 board, install the ESP8266 board package
-   and Adafruit ADS1X15 library if needed, then upload.
+1. Open `firmware/energy_usb/energy_usb.ino` in Arduino IDE.
+2. Select the ESP8266 board and its USB COM port. Install the ESP8266 board
+   package and Adafruit ADS1X15 library if needed, then upload.
 3. Keep both bulbs OFF during startup baseline calibration.
-
-The ESP serves the same endpoints on **80, 8080 and 8081** simultaneously:
-
-- `/health`: identifies GridScope and reports calibration/sensor/Wi-Fi status.
-- `/telemetry`: actual sensor readings with boot/sequence IDs.
-- `/`: short endpoint instructions for direct browser troubleshooting.
-
-The ESP joins your hotspot using DHCP. It also creates a direct Wi-Fi network:
-
-| Setting | Value |
-| --- | --- |
-| Wi-Fi name | `GridScope-Setup` |
-| Wi-Fi password | `GridScope123` |
-| Fixed ESP address on that network | `192.168.50.1` |
-| Ports | `80`, `8080`, `8081` |
-
-For the simplest debug setup, connect the laptop directly to `GridScope-Setup`.
-No phone hotspot is needed in that mode. On a phone hotspot, both laptop and
-ESP must be connected to the same 2.4 GHz hotspot and client communication
-must be allowed. The fixed address belongs to the ESP's direct network, not
-its hotspot connection. A different device using port 80 at another IP does
-not conflict with the ESP.
+4. Close Arduino Serial Monitor before starting Python; only one program can
+   use the board's COM port at a time.
 
 ## Start the dashboard
 
-Install Python 3.10+ with PATH enabled. First-time setup requires internet:
+In VS Code, open a new integrated terminal after this workspace loads. The
+workspace puts its Python runtime and project environment on that terminal's
+PATH, so you do not need to activate an environment. First-time setup requires
+internet to install dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-Then connect to the ESP Wi-Fi or the phone hotspot and run:
+Connect the ESP8266 to the computer with a USB data cable, then run:
 
 ```powershell
 python app.py
 ```
 
-The dashboard opens automatically while Python scans in the background.
+The dashboard opens automatically while Python listens for serial readings.
 It tries local dashboard ports **8765-8775** and opens the available one.
 Keep the terminal open. You can also double-click `start_dashboard.cmd`, or
 run `.\run_windows.ps1` (these install dependencies before starting).
 
 Use **Dashboard** for readings, charts and energy totals. Switch to
-**Debugging** for connection errors, scan results, device health, raw sensor
+**Debugging** for USB connection status, the selected COM port, raw sensor
 packets and the full API response. The screen links support browser Back and
 direct links (`/#dashboard` and `/#debugging`); readings keep updating while
 you switch screens.
@@ -122,8 +104,8 @@ Fixture shadows use cached 512-pixel spotlight maps rather than cube maps.
 Moving flow dots use a small 2D overlay capped at 30 fps; cached visibility checks keep them
 behind furniture. Animation stops when paused, offscreen, in a hidden tab, or
 in Debugging. Offscreen charts and hidden debugging details also skip updates
-until they are visible again. Network polling pauses in hidden tabs, and unchanged
-charts and scan tables keep their existing elements instead of rebuilding.
+until they are visible again. Dashboard API polling pauses in hidden tabs, and
+unchanged charts, analytics rows and debugging details keep their existing elements.
 Flow pulse counts follow cable length and available screen space, with one
 pulse on the short Zone A branch. Dialogs, screen entrances, and controls use
 brief native browser animations that respect reduced-motion preferences.
@@ -133,59 +115,29 @@ license included). No CDN, downloaded model, or internet connection is needed
 to render the dashboard. If WebGL is unavailable, a simple room diagram is
 shown and the live readings remain usable.
 
-## What Python scans
+## USB serial connection
 
-`network_scan.json` contains the address ranges, port options and timeouts:
+The service automatically selects a likely ESP8266 USB serial port. If several
+serial devices are connected, specify the board's port explicitly, for example
+`python app.py --port COM5`. Find the port in Arduino IDE under **Tools → Port**
+or in Windows Device Manager. The firmware uses **115200 baud**.
 
-```json
-{
-  "ranges": ["auto", "192.168.50.1/32"],
-  "ports": [80, 8080, 8081],
-  "timeout_seconds": 0.7,
-  "workers": 24
-}
-```
+The board restarts when Python opens its serial port, then calibrates. Keep both
+bulbs off until calibration finishes. If no port appears, check that the cable
+supports data, install the board's USB-to-serial driver (often CH340 or CP210x),
+and close Arduino Serial Monitor. `ADS1115_NOT_FOUND` means the serial link works
+but the sensor converter is not detected; check its power and I2C wiring.
 
-`auto` scans the private /24 containing each connected laptop gateway
-interface (up to 254 IPs per subnet). The second entry explicitly checks the
-ESP's fixed direct address. For a known small range, use CIDR notation such as
-`192.168.43.192/28`; for one IP use `192.168.43.20/32`. Configured ranges must
-be private IPv4 /24 or smaller. Only these configured ports are probed.
-
-The page shows scan round, resolved ranges, ports, completed checks, recent
-URL results with timings, sensor status and the last packet. Python accepts
-only an HTTP `/health` response identifying the GridScope protocol, so an
-unrelated web server is not mistaken for a sensor. It retries a failed scan
-after three seconds. After three connection failures it rescans automatically.
-Edit `network_scan.json` while disconnected and the next scan reloads it.
-
-On a larger subnet, `auto` deliberately checks only the laptop's /24. Add the
-ESP's actual /24 to the config if it is elsewhere. No multicast, Bonjour or
-IP entry in the browser is needed. A scan may take tens of seconds depending
-on the number of configured ranges and network timeouts.
-
-## Debugging from the page
-
-- **All attempts fail:** verify the laptop's Wi-Fi network. Try connecting
-  directly to `GridScope-Setup` to bypass hotspot isolation.
-- **HTTP responds but not GridScope:** the address belongs to another device,
-  or the ESP has older firmware; flash this sketch.
-- **WAITING_FOR_RAILS / CALIBRATING:** keep both bulbs off and wait.
-- **ADS1115_NOT_FOUND:** ESP networking is working; check ADC power and I2C wiring.
-- **READY but packet not advancing:** the ESP responds but readings have stalled.
-- **Small currents display zero:** the server retains eight-sample smoothing
-  and a 20 mA cutoff. Expand the last-packet section to see transmitted values.
-
-Direct manual checks, if needed: `http://192.168.50.1/health` or
-`http://192.168.50.1:8080/health` while connected to the ESP Wi-Fi.
+The dashboard's **Debugging** screen shows the selected port, connection status,
+latest serial packet and any error. Python retries serial connection when the
+board is unplugged or the port is busy.
 
 ## Other run modes
 
-- Exact device: `python server.py --device-url http://192.168.50.1:8081/telemetry`
-- USB serial: `python server.py --port COM3` (close Serial Monitor first).
-- Backend demo: `python server.py --demo` (mode is visible in Debugging; the dashboard has no simulation banner).
-- No automatic browser: `python server.py --no-browser`
-- Different dashboard port range: `python server.py --web-port 9000` tries 9000-9010.
+- Explicit USB serial port: `python app.py --port COM5` (close Serial Monitor first).
+- Backend demo: `python app.py --demo` (mode is visible in Debugging; the dashboard has no simulation banner).
+- No automatic browser: `python app.py --no-browser`
+- Different dashboard port range: `python app.py --web-port 9000` tries 9000-9010.
 
 ## Data and configuration
 
@@ -233,5 +185,5 @@ cost estimates, circuit shares, coverage and 24-hour / 7-day / 30-day trends.
 Hosting is optional and unnecessary for the local demo. If needed later, the
 separate hosted dashboard has its own [Cloud setup](docs/CLOUD_SETUP.md).
 Keep connection strings out of source files. Without these,
-the application works locally. Neither Wi-Fi operation nor local storage needs
-internet after dependencies have been installed.
+the application works locally. USB telemetry and local storage need no internet
+after dependencies have been installed.

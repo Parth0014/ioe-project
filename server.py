@@ -1,4 +1,4 @@
-"""GridScope energy monitor with Wi-Fi and USB serial telemetry."""
+"""GridScope energy monitor with USB serial telemetry."""
 from __future__ import annotations
 import argparse
 import csv
@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.request import ProxyHandler, build_opener
-from urllib.parse import urlparse
 
 from cloud import CloudStore
 from analytics import local_analytics, parameters, report
@@ -75,9 +74,6 @@ class EnergyEngine:
         self.mode = mode
         self.port: str | None = None
         self.transport = "USB serial"
-        self.network_packet_id = None
-        self.scan = {"phase": "Not started", "ranges": [], "ports": [], "attempted": 0, "total": 0, "results": [], "round": 0}
-        self.device_health = None
         self.serial_device: Any = None
         self.connection_status = "CONNECTING" if mode == "LIVE" else "SIMULATION"
         self.error = ""
@@ -238,8 +234,6 @@ class EnergyEngine:
             return {
                 "mode": self.mode, "connection": connection, "port": self.port,
                 "transport": self.transport,
-                "scan": {**self.scan, "results": list(self.scan["results"])},
-                "device_health": self.device_health,
                 "last_packet": self.last_line,
                 "age_seconds": round(age, 2) if age is not None else None,
                 "latest": self.latest if live else None,
@@ -296,7 +290,7 @@ def serial_reader(engine: EnergyEngine, port: str | None):
             dev = (scored or candidates)[0].device if candidates else None
         if not dev:
             engine.connection_status = "DISCONNECTED"
-            engine.error = "No serial port detected; pass --port COM3 or --port /dev/ttyUSB0"
+            engine.error = "No serial port detected. Connect the board with a USB data cable or choose --port COM5."
             time.sleep(3)
             continue
         try:
@@ -329,90 +323,6 @@ def serial_reader(engine: EnergyEngine, port: str | None):
                 engine.previous_power = None
                 engine.last_packet_mono = None
         time.sleep(2)
-
-
-def accept_network_packet(engine: EnergyEngine, body: bytes) -> bool:
-    packet = parse_data(body.decode("utf8").strip())
-    if packet is None or any(k not in packet or packet[k] < 0 or not packet[k].is_integer()
-                             for k in ("boot", "seq")):
-        raise ValueError("ESP response must be DATA telemetry with boot and seq fields")
-    identity = (packet["boot"], packet["seq"])
-    with engine.lock:
-        engine.last_line = body.decode("utf8").strip()[:500]
-        if identity == engine.network_packet_id:
-            return False  # Re-reading a cached measurement must not refresh its age or energy.
-        engine.transport = "Wi-Fi"
-        engine.accept(packet)
-        engine.network_packet_id = identity
-    return True
-
-
-def network_reader(engine: EnergyEngine, url: str | None = None):
-    from network_scan import load_scan_config, read_health, scan_once
-    engine.transport = "Wi-Fi"
-    engine.port = url
-    opener = build_opener(ProxyHandler({}))  # Hotspot traffic should never use an HTTP proxy.
-
-    def report(update):
-        with engine.lock:
-            if "attempt" in update:
-                engine.scan["attempted"] += 1
-                engine.scan["results"] = (engine.scan["results"] + [update["attempt"]])[-60:]
-            else:
-                engine.scan.update(update)
-
-    target = url
-    failures = 0
-    while True:
-        try:
-            if target is None:
-                with engine.lock:
-                    engine.port = None
-                    engine.device_health = None
-                    engine.scan["round"] += 1
-                    engine.scan["results"] = []
-                    engine.scan.update(phase="Preparing scan", attempted=0, total=0)
-                    engine.error = "Scanning configured addresses and ports for your ESP8266."
-                found = scan_once(load_scan_config(ROOT / "network_scan.json"), report)
-                if found is None:
-                    report({"phase": "No device found. Retrying in 3 seconds"})
-                    raise ValueError("No GridScope response. Check hotspot access, or connect to GridScope-Setup Wi-Fi. See scan results below.")
-                target = found["url"] + "/telemetry"
-                with engine.lock:
-                    engine.device_health = found["device"]
-                failures = 0
-            with engine.lock:
-                engine.port = target
-            report({"phase": "Device found"})
-            # Health remains available even if the ADC is missing or calibrating.
-            health = read_health(target.rsplit("/", 1)[0], 2)
-            with engine.lock:
-                engine.device_health = health
-            if health.get("status") != "READY":
-                raise ValueError("ESP reached: " + str(health.get("status", "Unknown sensor status")))
-            with opener.open(target, timeout=2) as response:
-                body = response.read(2049)
-            if len(body) > 2048:
-                raise ValueError("ESP response exceeds 2048 bytes")
-            is_new = accept_network_packet(engine, body)
-            if not is_new and engine.last_packet_wall and time.time() - engine.last_packet_wall >= 4:
-                raise ValueError("ESP is responding but its sensor sample is not advancing")
-            failures = 0
-            report({"phase": "Receiving readings"})
-        except (OSError, ValueError, UnicodeError) as exc:
-            with engine.lock:
-                engine.error = f"Wi-Fi: {exc}"
-                engine.connection_status = "DISCONNECTED"
-                engine.previous_power = None
-                engine.last_packet_mono = None
-            if isinstance(exc, OSError):
-                failures += 1
-                report({"phase": f"Connection failed ({failures}/3). Retrying"})
-                if failures >= 3 and not url:
-                    target = None
-            elif target:
-                report({"phase": "Device reached; check sensor status"})
-        time.sleep(0.7 if target else 3)
 
 
 def open_dashboard(web_port: int):
@@ -516,20 +426,15 @@ def main():
     from dotenv import load_dotenv
     load_dotenv(ROOT / '.env')
     parser = argparse.ArgumentParser(description="Soldered-board energy audit monitor")
-    parser.add_argument("--port", help="Use USB serial instead of Wi-Fi scanning, e.g. COM3")
+    parser.add_argument("--port", help="USB serial port (auto-detected when omitted), e.g. COM3")
     parser.add_argument("--web-port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1", help="Set 0.0.0.0 to open on your LAN; protect the network")
     parser.add_argument("--demo", action="store_true", help="Explicit, clearly labeled simulated readings")
-    parser.add_argument("--device-url", help="ESP8266 telemetry URL, e.g. http://192.168.43.20/telemetry")
     parser.add_argument("--open-browser", action="store_true", default=True, help="Open the dashboard automatically (default)")
     parser.add_argument("--no-browser", action="store_false", dest="open_browser", help="Do not open a browser")
     args = parser.parse_args()
-    if sum((bool(args.port), args.demo, bool(args.device_url))) > 1:
-        parser.error("Choose one of --port, --demo or --device-url")
-    if args.device_url:
-        u = urlparse(args.device_url)
-        if u.scheme != "http" or not u.hostname or u.username or u.password:
-            parser.error("--device-url must be an http:// ESP8266 address without credentials")
+    if args.port and args.demo:
+        parser.error("Choose either --port or --demo")
     engine = EnergyEngine("DEMO" if args.demo else "LIVE")
     from werkzeug.serving import make_server
     app = create_app(engine)
@@ -544,8 +449,8 @@ def main():
             print(f"Dashboard port {web_port} unavailable; trying next port.")
     if http_server is None:
         parser.error("No available dashboard port in the requested 11-port range")
-    target = demo_feeder if args.demo else serial_reader if args.port else network_reader
-    kwargs = {"args": (engine,)} if args.demo else {"args": (engine, args.device_url or args.port)}
+    target = demo_feeder if args.demo else serial_reader
+    kwargs = {"args": (engine,)} if args.demo else {"args": (engine, args.port)}
     threading.Thread(target=target, daemon=True, **kwargs).start()
     if args.open_browser:
         threading.Thread(target=open_dashboard, args=(http_server.server_port,), daemon=True).start()

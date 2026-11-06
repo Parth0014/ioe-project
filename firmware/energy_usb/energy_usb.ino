@@ -1,8 +1,6 @@
 
 #include <Wire.h>
 #include <Adafruit_ADS1X15.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <math.h>
 
 // =====================================================
@@ -12,20 +10,9 @@
 // Match the Python serial reader; ROM boot messages still use 74880 baud.
 #define BAUD_RATE       115200
 
-// =====================================================
-// HTTP SERVERS
-// =====================================================
-
-ESP8266WebServer http80(80);
-ESP8266WebServer http8080(8080);
-ESP8266WebServer http8081(8081);
-
-const char* deviceStatus = "STARTING";
-
-String latestTelemetry;
-
 uint32_t bootId = 0;
 uint32_t sampleSequence = 0;
+String telemetryLine;
 
 bool sensorAvailable = false;
 
@@ -54,105 +41,11 @@ float baseline_sensor1 = 0.0f;
 float baseline_sensor2 = 0.0f;
 
 // =====================================================
-// WIFI CLIENT HANDLING
+// Keep the ESP8266 responsive while sampling and calibrating.
 // =====================================================
 
-void serveWifi() {
-  http80.handleClient();
-  http8080.handleClient();
-  http8081.handleClient();
-
+void keepResponsive() {
   yield();
-}
-
-// =====================================================
-// HTTP ENDPOINTS
-// =====================================================
-
-void startHttp(ESP8266WebServer& server) {
-
-  ESP8266WebServer* endpoint = &server;
-
-  server.on("/health", HTTP_GET, [endpoint]() {
-
-    String body = "{\"device\":\"GridScope\",";
-    body += "\"protocol\":1,";
-    body += "\"sensor_layout\":\"independent\",";
-    body += "\"status\":\"";
-    body += deviceStatus;
-    body += "\",\"transport\":\"Wi-Fi AP\",";
-    body += "\"ip\":\"192.168.50.1\"}";
-
-    endpoint->send(200, "application/json", body);
-  });
-
-  server.on("/telemetry", HTTP_GET, [endpoint]() {
-
-    endpoint->sendHeader("Cache-Control", "no-store");
-
-    if (latestTelemetry.length() == 0) {
-
-      endpoint->send(503, "text/plain", deviceStatus);
-
-    } else {
-
-      endpoint->send(200, "text/plain", latestTelemetry);
-
-    }
-  });
-
-  server.on("/", HTTP_GET, [endpoint]() {
-
-    endpoint->send(
-      200,
-      "text/plain",
-      "GridScope: /health for status; /telemetry for sensor readings. Keep both bulbs OFF during startup calibration."
-    );
-
-  });
-
-  server.begin();
-}
-
-// =====================================================
-// WIFI ACCESS POINT
-// =====================================================
-
-void startWifi() {
-
-  bootId = ESP.getCycleCount() ^ micros();
-
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_AP);
-
-  IPAddress ip(192, 168, 50, 1);
-
-  if (
-    !WiFi.softAPConfig(
-      ip,
-      ip,
-      IPAddress(255, 255, 255, 0)
-    ) ||
-    !WiFi.softAP(
-      "GridScope-Setup",
-      "GridScope123"
-    )
-  ) {
-
-    deviceStatus = "WIFI_START_FAILED";
-
-    Serial.println("ERR:WIFI_START_FAILED");
-
-    return;
-  }
-
-  startHttp(http80);
-  startHttp(http8080);
-  startHttp(http8081);
-
-  Serial.println(
-    "INFO:WIFI GridScope-Setup http://192.168.50.1/health"
-  );
 }
 
 // =====================================================
@@ -186,7 +79,7 @@ void calibrateBaseline() {
     delayMicroseconds(1200);
 
     if (i % YIELD_EVERY == 0) {
-      serveWifi();
+      keepResponsive();
     }
   }
 
@@ -203,7 +96,7 @@ void calibrateBaseline() {
     delayMicroseconds(1200);
 
     if (i % YIELD_EVERY == 0) {
-      serveWifi();
+      keepResponsive();
     }
   }
 
@@ -239,7 +132,7 @@ void readAndSend() {
     delayMicroseconds(800);
 
     if (i % 10 == 0) {
-      serveWifi();
+      keepResponsive();
     }
   }
 
@@ -288,22 +181,22 @@ void readAndSend() {
 
   // TELEMETRY GENERATION
 
-  latestTelemetry =
+  telemetryLine =
     "DATA,s1_mA=" + String(current_sensor1_mA, 1);
 
-  latestTelemetry +=
+  telemetryLine +=
     ",s2_mA=" + String(current_sensor2_mA, 1);
 
   // Each ACS712 measures one separate zone; neither reading is a difference.
-  latestTelemetry += ",independent=1";
+  telemetryLine += ",independent=1";
 
-  latestTelemetry +=
+  telemetryLine +=
     ",boot=" + String(bootId);
 
-  latestTelemetry +=
+  telemetryLine +=
     ",seq=" + String(++sampleSequence);
 
-  Serial.println(latestTelemetry);
+  Serial.println(telemetryLine);
 }
 
 // =====================================================
@@ -328,11 +221,7 @@ void setup() {
   Serial.println(BAUD_RATE);
   Serial.println("INFO:SENSORS S1=Zone A, S2=Zone B (independent RMS current)");
 
-  // WIFI INITIALIZATION
-
-  startWifi();
-
-  deviceStatus = "CALIBRATING";
+  bootId = ESP.getCycleCount() ^ micros();
 
   // I2C INITIALIZATION
 
@@ -344,8 +233,6 @@ void setup() {
   ads.setDataRate(RATE_ADS1115_860SPS);
 
   if (!ads.begin()) {
-
-    deviceStatus = "ADS1115_NOT_FOUND";
 
     Serial.println("ERR:ADS1115_NOT_FOUND");
 
@@ -368,15 +255,13 @@ void setup() {
     for (int tick = 0; tick < 100; tick++) {
 
       delay(10);
-      serveWifi();
+      keepResponsive();
     }
   }
 
   // BASELINE CALIBRATION
 
   calibrateBaseline();
-
-  deviceStatus = "READY";
 
   Serial.println("INFO:READY");
 }
@@ -386,8 +271,6 @@ void setup() {
 // =====================================================
 
 void loop() {
-
-  serveWifi();
 
   if (sensorAvailable) {
 
