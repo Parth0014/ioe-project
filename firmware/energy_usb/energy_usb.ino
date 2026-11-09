@@ -1,4 +1,3 @@
-
 #include <Wire.h>
 #include <Adafruit_ADS1X15.h>
 #include <math.h>
@@ -23,20 +22,31 @@ bool sensorAvailable = false;
 #define SAMPLES         80
 #define CAL_SAMPLES     400
 
-#define ADC_LSB_MV      0.0625f
-#define SENSITIVITY     70.0f
-#define DIVIDER_FACTOR  2.0f
+#define ADC_LSB_MV      0.0625f   // GAIN_TWO: 0.0625 mV per count
+#define SENSITIVITY     100.0f    // ACS712-20A = 100 mV/A (5A = 185, 30A = 66)
+#define DIVIDER_FACTOR  2.0f      // 10k + 10k divider
 
-#define MIN_CURRENT_MA  20.0f
+#define MIN_CURRENT_MA  50.0f     // noise gate; tune after re-recording idle
 #define S2_TRIM_MA      0.0f
 
-#define CH_SENSOR1        0
-#define CH_SENSOR2        1
+// Set to 1 if "Zone A" bulb shows up on S2 and "Zone B" on S1
+// (this is how your 9 Nov recording looked).
+#define SWAP_SENSORS    0
+
+#if SWAP_SENSORS
+  #define CH_SENSOR1    1
+  #define CH_SENSOR2    0
+#else
+  #define CH_SENSOR1    0
+  #define CH_SENSOR2    1
+#endif
 
 #define YIELD_EVERY     50
 
 Adafruit_ADS1115 ads;
 
+// Kept for the CAL:BASELINE handshake / diagnostics only.
+// RMS below no longer depends on these.
 float baseline_sensor1 = 0.0f;
 float baseline_sensor2 = 0.0f;
 
@@ -49,7 +59,7 @@ void keepResponsive() {
 }
 
 // =====================================================
-// SENSOR BASELINE CALIBRATION
+// SENSOR BASELINE (diagnostic only)
 // =====================================================
 
 void calibrateBaseline() {
@@ -68,8 +78,6 @@ void calibrateBaseline() {
     delay(5);
   }
 
-  // SENSOR 1 BASELINE
-
   double sum_sensor1 = 0;
 
   for (int i = 0; i < CAL_SAMPLES; i++) {
@@ -84,8 +92,6 @@ void calibrateBaseline() {
   }
 
   baseline_sensor1 = sum_sensor1 / CAL_SAMPLES;
-
-  // SENSOR 2 BASELINE
 
   double sum_sensor2 = 0;
 
@@ -115,19 +121,22 @@ void calibrateBaseline() {
 
 void readAndSend() {
 
-  double sq_sensor1 = 0;
-  double sq_sensor2 = 0;
+  // Per-window mean-subtracted RMS:
+  // rms = sqrt( mean(x^2) - mean(x)^2 )
+  // Removes DC offset / zero-point drift automatically.
+  double sum1 = 0, sq1 = 0;
+  double sum2 = 0, sq2 = 0;
 
   for (int i = 0; i < SAMPLES; i++) {
 
-    float v_sensor1 =
-      ads.readADC_SingleEnded(CH_SENSOR1) - baseline_sensor1;
+    float x1 = ads.readADC_SingleEnded(CH_SENSOR1);
+    float x2 = ads.readADC_SingleEnded(CH_SENSOR2);
 
-    float v_sensor2 =
-      ads.readADC_SingleEnded(CH_SENSOR2) - baseline_sensor2;
+    sum1 += x1;
+    sq1  += (double)x1 * x1;
 
-    sq_sensor1 += v_sensor1 * v_sensor1;
-    sq_sensor2 += v_sensor2 * v_sensor2;
+    sum2 += x2;
+    sq2  += (double)x2 * x2;
 
     delayMicroseconds(800);
 
@@ -136,33 +145,30 @@ void readAndSend() {
     }
   }
 
-  // RMS CALCULATION
+  double mean1 = sum1 / SAMPLES;
+  double mean2 = sum2 / SAMPLES;
 
-  float rms_counts_sensor1 =
-    sqrt(sq_sensor1 / SAMPLES);
+  double var1 = sq1 / SAMPLES - mean1 * mean1;
+  double var2 = sq2 / SAMPLES - mean2 * mean2;
 
-  float rms_counts_sensor2 =
-    sqrt(sq_sensor2 / SAMPLES);
+  if (var1 < 0) var1 = 0;
+  if (var2 < 0) var2 = 0;
+
+  float rms_counts_sensor1 = sqrt(var1);
+  float rms_counts_sensor2 = sqrt(var2);
 
   // COUNTS TO MILLIVOLTS
 
-  float rms_mV_sensor1 =
-    rms_counts_sensor1 * ADC_LSB_MV;
-
-  float rms_mV_sensor2 =
-    rms_counts_sensor2 * ADC_LSB_MV;
+  float rms_mV_sensor1 = rms_counts_sensor1 * ADC_LSB_MV;
+  float rms_mV_sensor2 = rms_counts_sensor2 * ADC_LSB_MV;
 
   // MILLIVOLTS TO CURRENT
 
   float current_sensor1_mA =
-    (rms_mV_sensor1 / SENSITIVITY)
-    * 1000.0f
-    * DIVIDER_FACTOR;
+    (rms_mV_sensor1 / SENSITIVITY) * 1000.0f * DIVIDER_FACTOR;
 
   float current_sensor2_mA =
-    (rms_mV_sensor2 / SENSITIVITY)
-    * 1000.0f
-    * DIVIDER_FACTOR;
+    (rms_mV_sensor2 / SENSITIVITY) * 1000.0f * DIVIDER_FACTOR;
 
   // NOISE FILTER
 
@@ -205,8 +211,6 @@ void readAndSend() {
 
 void setup() {
 
-  // SERIAL INITIALIZATION
-
   Serial.begin(BAUD_RATE);
 
   delay(500);
@@ -223,11 +227,7 @@ void setup() {
 
   bootId = ESP.getCycleCount() ^ micros();
 
-  // I2C INITIALIZATION
-
   Wire.begin();
-
-  // ADS1115 CONFIGURATION
 
   ads.setGain(GAIN_TWO);
   ads.setDataRate(RATE_ADS1115_860SPS);
@@ -245,8 +245,6 @@ void setup() {
 
   Serial.println("CAL:WAITING_FOR_RAILS");
 
-  // CALIBRATION COUNTDOWN
-
   for (int i = 5; i > 0; i--) {
 
     Serial.print("CAL:COUNTDOWN,");
@@ -258,8 +256,6 @@ void setup() {
       keepResponsive();
     }
   }
-
-  // BASELINE CALIBRATION
 
   calibrateBaseline();
 

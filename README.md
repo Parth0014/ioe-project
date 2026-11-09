@@ -33,11 +33,10 @@ You can also enable this frontend preview on the Python-served dashboard by
 adding `?demo=1` to its URL (for example `http://127.0.0.1:8765/?demo=1`).
 The normal Python dashboard URL continues to use real telemetry.
 
-The Analytics link also works in this preview and opens explicitly labelled
-browser sample data. Live Server cannot serve Python's `/analytics` route or
-read SQLite. For your actual saved readings, run `python app.py` and open
+Analytics always uses history from the Python service. Live Server cannot serve
+the `/analytics` route or read SQLite. Run `python app.py` and open
 `http://127.0.0.1:8765/analytics` (use the port printed in the terminal).
-That page reads local SQLite and does not require MongoDB or internet.
+The page reads local SQLite and does not require MongoDB or internet.
 
 ## Flash once
 

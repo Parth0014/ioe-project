@@ -52,6 +52,9 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/analytics?mode=DEMO&range=7d').json, {'mode': 'DEMO', 'range': '7d'})
         page = self.client.get('/')
         self.assertEqual(page.status_code, 200)
+        self.assertIn(b'class="app-header"', page.data)
+        self.assertNotIn(b'id="mode"', page.data)
+        self.assertNotIn(b'Demo data', page.data)
         csrf = re.search(r'name="csrf" value="([^"]+)"', page.text)[1]
         self.assertEqual(self.client.post('/logout', data={'csrf': csrf}).status_code, 302)
         self.assertEqual(self.client.get('/api/analytics').status_code, 401)

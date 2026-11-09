@@ -3,22 +3,17 @@
   const $ = id => document.getElementById(id);
   const hosted = document.body.dataset.hosted === 'true';
   const query = new URLSearchParams(location.search);
-  const staticPreview=location.pathname.includes('/templates/');
-  const frontendPreview=!hosted&&(staticPreview||query.get('demo')==='1');
   let range = ['24h', '7d', '30d'].includes(query.get('range')) ? query.get('range') : '24h';
-  const defaultMode=frontendPreview?'DEMO':['LIVE','DEMO'].includes(document.body.dataset.mode)?document.body.dataset.mode:'LIVE';
-  let mode = ['LIVE', 'DEMO'].includes(query.get('mode')) ? query.get('mode') : defaultMode;
-  $('nav-local-dashboard').hidden=hosted;
+  $('nav-dashboard').hidden=hosted;
+  $('nav-debugging').hidden=hosted;
   $('signout').hidden=!hosted;
-  $('local-context').hidden=hosted;
-  if(hosted)$('app-context').textContent='Cloud dashboard';
-  if(frontendPreview){
-    $('preview-note').hidden=false;
-    $('local-context').textContent='Frontend preview';
-    $('nav-local-dashboard').href=staticPreview?'/templates/index.html':'/?demo=1';
-    $('nav-usage').href=staticPreview?'/templates/analytics.html?demo=1':'/analytics?demo=1';
-    $('analytics-brand').href=$('nav-usage').href;
+  if(hosted){
+    $('app-context').textContent='Cloud dashboard';
+    $('analytics-brand').href='/analytics';
   }
+  const cleanUrl=new URL(location.href);
+  for(const key of [...cleanUrl.searchParams.keys()])if(key!=='range')cleanUrl.searchParams.delete(key);
+  if(cleanUrl.href!==location.href)history.replaceState(null,'',cleanUrl);
   let current = null, controller = null, loading = false;
   let lastChartKey='',lastBucketsKey='',lastEventsKey='';
   const number = (value, digits = 2) => value == null ? '—' : new Intl.NumberFormat('en-IN', { maximumFractionDigits: digits }).format(value);
@@ -72,7 +67,6 @@
     const s = data.summary, cloud = data.cloud || {}, latest = data.latest;
     $('report').hidden = false;
     $('empty').hidden = s.samples > 0;
-    $('demo-note').hidden = mode !== 'DEMO'||frontendPreview;
     text('energy', number(s.energy_wh >= 1000 ? s.energy_wh/1000 : s.energy_wh, 3));
     text('energy-unit', s.energy_wh >= 1000 ? 'kWh' : 'Wh');
     text('cost', `₹${number(s.cost_inr, s.cost_inr < 1 ? 4 : 2)}`);
@@ -91,12 +85,12 @@
     text('split-note', s.a_wh+s.b_wh > s.energy_wh*1.02 && s.energy_wh > 0 ? 'Circuit estimates exceed feeder energy. Review sensor disagreement events and calibration.' : 'Shares use recorded feeder energy. Zone B is inferred from the two sensors.');
     const age = latest ? Math.max(0, Date.now()/1000-latest.ts) : Infinity;
     const fresh = age <= 10;
-    text('status', `${frontendPreview ? 'Frontend preview' : hosted ? 'Cloud history' : 'Local history'} · ${mode === 'DEMO' ? 'Demo readings' : 'Real sensor readings'} · ${fresh ? 'Readings arriving' : latest ? 'Gateway readings are stale' : 'Waiting for first reading'}`);
+    text('status', `${hosted ? 'Cloud history' : 'Local history'} · ${fresh ? 'Readings arriving' : latest ? 'Gateway readings are stale' : 'Waiting for first reading'}`);
     $('status-dot').classList.toggle('fresh', fresh);
     text('refreshed', `Updated ${date(data.generated_at || data.end, { day: undefined, month: undefined })} IST`);
     text('last-reading', latest ? `${date(latest.ts)} IST${fresh ? '' : ' · stale'}` : 'No saved readings');
     text('last-power', latest ? `${number(latest.main_w, 1)} W${fresh ? '' : ' · last known'}` : '—');
-    text('source', frontendPreview?'Browser sample data':hosted?'MongoDB Atlas':'Local SQLite');
+    text('source', hosted?'MongoDB Atlas':'Local SQLite');
     text('cloud-state', hosted ? (cloud.heartbeat && Date.now()/1000-cloud.heartbeat < 30 ? 'Gateway connected recently' : 'Gateway heartbeat is stale') : !cloud.enabled ? 'Not configured · saved locally' : cloud.ok ? `${number(cloud.queued, 0)} rows pending upload` : 'Retrying · saved locally');
     text('previous-coverage', `${number(s.previous_coverage_percent, 1)}%`);
     text('quality-note', `${s.coverage_percent < 95 ? 'This period has gaps. Totals include recorded energy only. ' : ''}Comparisons depend on recording coverage.${s.counter_resets ? ` ${s.counter_resets} counter reset(s) excluded from energy deltas.` : ''}`);
@@ -136,12 +130,7 @@
     $('refresh').disabled=true; $('refresh').textContent='Refreshing…'; $('error').hidden=true;
     if (clear) { current=null; $('report').hidden=true; $('empty').hidden=true; $('export').disabled=true; text('status','Loading recorded usage…'); }
     try {
-      if(frontendPreview){
-        const {previewReport}=await import('/static/analytics-preview.js');
-        render(previewReport(range,mode));
-        return;
-      }
-      const response = await fetch(`/api/analytics?range=${range}&mode=${mode}`, { signal:active.signal, cache:'no-store' });
+      const response = await fetch(`/api/analytics?range=${range}`, { signal:active.signal, cache:'no-store' });
       if (response.status===401 && hosted) { location.assign('/login'); return; }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Usage could not be loaded. Try again.');
@@ -157,20 +146,20 @@
     }
   }
   function updateFilters() {
-    range = document.querySelector('input[name=range]:checked').value; mode=$('mode').value;
-    const url=new URL(location.href); url.searchParams.set('range',range); url.searchParams.set('mode',mode); history.replaceState(null,'',url);
-    $('demo-note').hidden=mode!=='DEMO'||frontendPreview; load(true);
+    range = document.querySelector('input[name=range]:checked').value;
+    const url=new URL(location.href); url.searchParams.set('range',range); history.replaceState(null,'',url);
+    load(true);
   }
-  document.querySelector(`input[name=range][value="${range}"]`).checked=true; $('mode').value=mode;
+  document.querySelector(`input[name=range][value="${range}"]`).checked=true;
   document.querySelectorAll('input[name=range]').forEach(input => input.addEventListener('change',updateFilters));
-  $('mode').addEventListener('change',updateFilters); $('refresh').addEventListener('click',()=>load()); $('retry').addEventListener('click',()=>load(!current));
+  $('refresh').addEventListener('click',()=>load()); $('retry').addEventListener('click',()=>load(!current));
   $('export').addEventListener('click', () => {
     if (!current) return;
-    const lines=[['interval_utc','interval_ist','feeder_wh','zone_a_wh','zone_b_wh','samples','recorded_seconds','mode']];
-    for (const b of current.buckets) lines.push([new Date(b.timestamp*1000).toISOString(),date(b.timestamp),b.energy_wh??'',b.a_wh??'',b.b_wh??'',b.samples,b.recorded_seconds,current.mode]);
+    const lines=[['interval_utc','interval_ist','feeder_wh','zone_a_wh','zone_b_wh','samples','recorded_seconds']];
+    for (const b of current.buckets) lines.push([new Date(b.timestamp*1000).toISOString(),date(b.timestamp),b.energy_wh??'',b.a_wh??'',b.b_wh??'',b.samples,b.recorded_seconds]);
     const csv=lines.map(row=>row.map(value=>`"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n');
     const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})), link=document.createElement('a');
-    link.href=url; link.download=`gridscope-${current.mode.toLowerCase()}-${range}.csv`; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    link.href=url; link.download=`gridscope-usage-${range}.csv`; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
   let sizeFrame;
   new ResizeObserver(()=>{ cancelAnimationFrame(sizeFrame); sizeFrame=requestAnimationFrame(()=>{if(current&&!$('report').hidden)drawChart(current);}); }).observe($('chart'));

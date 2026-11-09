@@ -248,6 +248,26 @@ class EnergyEngine:
                 "firmware_compatibility": "Independent zone firmware supported; unmarked older packets keep feeder/branch mapping",
             }
 
+    def clear_data(self) -> dict[str, int]:
+        with self.lock:
+            with db_connection() as conn:
+                conn.execute("PRAGMA secure_delete=ON")
+                deleted = {
+                    "samples": conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0],
+                    "events": conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
+                }
+                conn.execute("DELETE FROM samples")
+                conn.execute("DELETE FROM events")
+                conn.execute("DELETE FROM cloud_outbox")
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='events'")
+            self.total_wh = self.a_wh = self.b_wh = 0.0
+            self.previous_power = None
+            self.last_recorded_wall = 0.0
+            self.events.clear()
+            self.last_alert_at.clear()
+            self.alert_hits.clear()
+            return deleted
+
     def update_settings(self, changes: dict) -> dict:
         with self.lock:
             combined = {**asdict(self.settings), **changes}
@@ -383,7 +403,7 @@ def create_app(engine: EnergyEngine) -> Flask:
 
     @app.get("/analytics")
     def analytics_page():
-        return render_template("analytics.html", hosted=False, default_mode=engine.mode)
+        return render_template("analytics.html", hosted=False)
 
     @app.get("/api/analytics")
     def analytics_api():
@@ -410,6 +430,14 @@ def create_app(engine: EnergyEngine) -> Flask:
         if not engine.request_idle_calibration():
             return jsonify(error="Legacy firmware does not support live recalibration. No flash required; calibration occurs on firmware boot."), 409
         return jsonify(ok=True, message="Idle calibration requested; confirmation pending from ESP8266")
+
+    @app.post("/api/clear-data")
+    def clear_data():
+        body = request.get_json(silent=True) or {}
+        if body.get("confirmation") != "clear data":
+            return jsonify(error="Type 'clear data' to confirm permanent deletion"), 400
+        deleted = engine.clear_data()
+        return jsonify(ok=True, deleted=deleted, state=engine.dashboard())
 
     @app.get("/api/export.csv")
     def export_csv():

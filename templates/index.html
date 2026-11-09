@@ -2,13 +2,12 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dashboard · GridScope</title><link rel="icon" href="data:,">
 <link rel="stylesheet" href="/static/dashboard.css">
-<script src="/static/value-recorder.js" defer></script>
 <script src="/static/dashboard.js" defer></script>
 </head><body><a class="skip-link" href="#dashboard-heading">Skip to content</a>
 <div class="wrap">
 <header class="app-header">
 <a class="brand" href="#dashboard" aria-label="GridScope dashboard"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M8 9h11v9h9M8 27h11v-9M8 18h11"/><circle cx="8" cy="9" r="3"/><circle cx="8" cy="18" r="3"/><circle cx="8" cy="27" r="3"/><circle cx="28" cy="18" r="3"/></svg><span>GridScope<small>Energy monitor</small></span></a>
-<nav class="view-nav" aria-label="Main navigation"><a href="#dashboard" id="nav-dashboard" aria-current="page">Dashboard</a><a href="/analytics" id="nav-analytics">Analytics</a><a href="#debugging" id="nav-debugging">Debugging</a></nav>
+<nav class="view-nav" aria-label="Main navigation"><a href="#dashboard" id="nav-dashboard" aria-current="page">Dashboard</a><a href="/analytics" id="nav-analytics">Analytics</a></nav>
 <div class="header-actions"><a class="export-link" href="/api/export.csv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg>Export data</a></div>
 </header>
 <main>
@@ -24,6 +23,13 @@
 </section>
 <section class="card debug" aria-label="Device data"><h2>Device data</h2><h3>Last sensor packet</h3><code id="raw-packet">No sensor packet yet</code></section>
 <section class="card debug" aria-label="Full server response"><h2>Full server response</h2><p>The latest dashboard API response, including measurement flags, settings, totals and history.</p><pre class="debug-state" id="api-response">Waiting for server response...</pre></section>
+<section class="card debug debug-danger" aria-labelledby="clear-data-heading">
+<h2 id="clear-data-heading">Clear recorded data</h2>
+<p>Permanently deletes all local readings, events and pending uploads, then restarts energy totals from zero. Settings and existing cloud copies are unchanged. Obsolete GridScope browser data is also removed.</p>
+<label class="clear-data-label" for="clear-data-confirm">Type <code>clear data</code> to enable the reset.</label>
+<div class="clear-data-controls"><input id="clear-data-confirm" type="text" autocomplete="off" spellcheck="false"><button id="clear-data-button" class="clear-data-button" type="button" disabled>Clear all data</button></div>
+<p class="clear-data-status" id="clear-data-status" role="status" aria-live="polite"></p>
+</section>
 </section>
 <section id="dashboard-screen" aria-labelledby="dashboard-heading">
 <div class="page-heading"><div><h1 id="dashboard-heading" tabindex="-1">See where the power goes.</h1></div></div>
@@ -45,38 +51,13 @@
 <div class="accuracy-note"></div>
 </aside>
 </div>
-<section class="value-recorder" aria-labelledby="value-recorder-heading">
-<div class="recorder-header">
-<div><p class="eyebrow">FIELD NOTES</p><h2 id="value-recorder-heading">Value recording</h2><p class="recorder-intro">Mark each physical bulb change and keep a timestamped trace of the readings.</p></div>
-<div class="recorder-actions"><span id="recorder-status" class="recorder-status" role="status" aria-live="polite">Not recording</span><button type="button" id="record-toggle" class="recorder-start">Start recording</button></div>
-</div>
-<div class="recorder-workspace">
-<div class="recorder-controls">
-<p class="recorder-label">Add a state marker</p>
-<div class="recorder-markers" role="group" aria-label="Physical bulb state markers">
-<button type="button" data-record-state="BOTH_OFF" aria-pressed="false" disabled>Both bulbs off</button>
-<button type="button" data-record-state="ZONE_A_ON" aria-pressed="false" disabled>Zone A on</button>
-<button type="button" data-record-state="ZONE_B_ON" aria-pressed="false" disabled>Zone B on</button>
-<button type="button" data-record-state="ALL_ZONES_ON" aria-pressed="false" disabled>All zones on</button>
-</div>
-<p class="recorder-hint" id="recorder-hint">Set the bulbs yourself; these buttons add notes and do not control the circuits. A reading is captured on each dashboard refresh. This browser keeps up to 4,000 recent entries.</p>
-<div class="recorder-footer"><span id="recorder-count">0 entries</span><details class="recorder-clear"><summary>Clear flow</summary><div class="recorder-clear__panel"><label for="recorder-clear-confirm">Type <code>clear data</code> to erase this browser's saved recording flow.</label><input id="recorder-clear-confirm" type="text" autocomplete="off" spellcheck="false" aria-describedby="recorder-clear-scope"><p id="recorder-clear-scope">This also stops recording. Your SQLite energy history is unchanged.</p><button type="button" id="recorder-clear-button" class="recorder-clear__button" hidden>Clear recording data</button><span id="recorder-clear-status" role="status" aria-live="polite"></span></div></details><button type="button" id="record-export" class="recorder-export" disabled>Export CSV</button></div>
-</div>
-<div class="recorder-flow-wrap">
-<div class="recorder-flow-heading"><h3>Recording flow</h3><span id="recorder-current-state">No state marked</span></div>
-<ol id="recorder-flow" class="recorder-flow" aria-label="Recording flow">
-<li class="recorder-empty">Start recording, then add a marker when you change a bulb.</li>
-</ol>
-</div>
-</div>
-</section>
 <div class="analytics-grid">
 <section class="panel trend-panel"><div class="panel-heading"><div><h2>Power over time</h2><p id="chart-range">Waiting for recorded samples</p></div><div class="legend"><span><i class="feed"></i>Total</span><span><i class="zone-a"></i>Zone A</span><span><i class="zone-b"></i>Zone B</span></div></div><div class="chart-wrap"><svg id="chart" viewBox="0 0 900 210" role="img" aria-label="Estimated power history in watts"></svg><p id="chart-empty">Your power history will appear as readings arrive.</p></div></section>
 <section class="panel split-panel"><div class="panel-heading"><div><h2>Where energy is used</h2><p>Recorded circuit energy</p></div><span class="tiny-tag">Wh</span></div><div class="split-content"><div class="energy-ring" id="energy-ring"><div><b id="split-total">—</b><span>circuit Wh</span></div></div><div class="split-readings"><div><span><i class="zone-a"></i>Zone A</span><b id="tA">—</b></div><div><span><i class="zone-b"></i>Zone B</span><b id="tB">—</b></div><div class="feeder-total"><span>Total monitored</span><b id="tT">—</b></div><p id="sTxt">Waiting for data</p></div></div></section>
 </div>
 
 </section>
-</main><footer><span>GridScope <span class="footer-separator">/</span> Energy Monitoring</span></footer>
+</main><footer class="app-footer"><span>GridScope <span class="footer-separator">/</span> Energy Monitoring</span><a class="developer-link" href="#debugging" id="nav-debugging">Developer debugging</a></footer>
 </div>
 <button type="button" class="preview-launcher" id="preview-launcher" popovertarget="preview-menu" aria-expanded="false" aria-controls="preview-menu" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 14h14"/><circle cx="7" cy="6" r="2"/><circle cx="13" cy="14" r="2"/></svg>Preview controls</button>
 <section class="preview-menu" id="preview-menu" popover="auto" role="dialog" aria-labelledby="preview-menu-title">

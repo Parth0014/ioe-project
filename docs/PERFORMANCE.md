@@ -48,30 +48,27 @@ The same 512px cached lamp shadows, buffer budget and 30fps overlay remain.
 `python app.py` serves `/analytics` and `/api/analytics` using SQLite. Atlas
 uploading is optional. An unavailable cloud connection cannot block this page.
 
-Opening `templates/index.html` in Live Server instead uses browser preview data.
-Its Analytics link goes to `templates/analytics.html?demo=1`, not a nonexistent
-Python route on port 5500. The preview has a visible sample-data notice, never
-calls the data API, and never invents real sensor history in LIVE mode.
+Opening `templates/index.html` in Live Server can preview the dashboard model,
+but analytics always routes through the Python service so it can read SQLite.
 
 ## Checks
 
 ```powershell
 python -m unittest discover -v
-node --test tests/test_scene_timing.mjs tests/test_analytics_preview.mjs tests/test_room_model.mjs
+node --test tests/test_scene_timing.mjs tests/test_room_model.mjs
 ```
 
 The MongoDB integration checks are opt-in against a disposable localhost
 database; they are skipped when that database is not provided.
 
 Browser checks under `tests/browser` use Playwright CLI `run-code --filename`.
-Start `tests/browser_fixture.py` for isolated Python servers on 8876/8877,
-and a temporary static server on 5501 for the Live Server checks. These fixtures
-use temporary history and do not load the private `.env` or real SQLite data.
+Start `tests/browser_fixture.py` for isolated Python servers on 8876/8877. These
+fixtures use temporary history and do not load the private `.env` or real SQLite data.
 Screenshots and downloads go under ignored `output/playwright`.
 
 The checks cover all four circuit states, rapid reversals, pause/resume, stale
 readings after returning from a background tab, debugging, reduced motion,
-retina phone framing, static analytics navigation, local SQLite analytics,
+retina phone framing, consistent analytics navigation, local SQLite analytics,
 CSV export and refresh error recovery.
 
 ## Repository hygiene

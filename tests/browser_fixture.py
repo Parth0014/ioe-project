@@ -24,7 +24,7 @@ def main():
         now = int(time.time())
         total = a = b = 0
         rows = []
-        # Clearly labelled DEMO bursts, with intentional gaps between recordings.
+        # Recorded bursts with intentional gaps for coverage checks.
         for hour in range(8*24):
             for second in range(20):
                 ts = now-(8*24-hour)*3600+second
@@ -35,9 +35,9 @@ def main():
                 rows.append((ts, watts/230*1000, watts, watts*.6, watts*.4, total, a, b))
         rows.append((now, 200, 46, 27.6, 18.4, total, a, b))
         with server.db_connection() as conn:
-            conn.executemany("INSERT INTO samples(timestamp,main_ma,main_w,branch_a_w,branch_b_w,wh_total,wh_a,wh_b,flags,data_mode) VALUES(?,?,?,?,?,?,?,?,'[]','DEMO')", rows)
-            conn.execute("INSERT INTO events(timestamp,kind,title,details,data_mode) VALUES(?,'info','Demo recording saved','Simulated readings for UI verification only.','DEMO')", (now,))
-        engine = server.EnergyEngine('DEMO')
+            conn.executemany("INSERT INTO samples(timestamp,main_ma,main_w,branch_a_w,branch_b_w,wh_total,wh_a,wh_b,flags,data_mode) VALUES(?,?,?,?,?,?,?,?,'[]','LIVE')", rows)
+            conn.execute("INSERT INTO events(timestamp,kind,title,details,data_mode) VALUES(?,'info','Recording available','Saved readings for UI verification.','LIVE')", (now,))
+        engine = server.EnergyEngine('LIVE')
         local = make_server('127.0.0.1', 8876, server.create_app(engine), threaded=True)
         threading.Thread(target=local.serve_forever, daemon=True).start()
         uri = os.environ.get('GRIDSCOPE_TEST_MONGO_URI')

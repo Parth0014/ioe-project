@@ -1,11 +1,39 @@
 ﻿const $ = id => document.getElementById(id);
+try { localStorage.removeItem('gridscope.value-recording.v1'); } catch {}
 const f = (value, digits=1) => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toFixed(digits);
 let latestState = null, receivedAt = 0, energyScene = null, sceneFailed = false, motionPaused = false;
 let chartVisible=false,lastEventsKey='',lastChartKey='';
 let pollTimer=0,pollController=null,polling=false;
 const setText=(id,value)=>{const node=$(id);if(node&&node.textContent!==value)node.textContent=value;};
 const frontendPreview = new URLSearchParams(location.search).get('demo') === '1' || location.pathname.includes('/templates/');
-if(frontendPreview)$('nav-analytics').href=location.pathname.includes('/templates/')?'/templates/analytics.html?demo=1':'/analytics?demo=1';
+const clearDataInput=$('clear-data-confirm'),clearDataButton=$('clear-data-button'),clearDataStatus=$('clear-data-status');
+const clearDataConfirmed=()=>clearDataInput.value.trim().toLowerCase()==='clear data';
+clearDataInput.addEventListener('input',()=>{
+  clearDataButton.disabled=!clearDataConfirmed();
+  clearDataStatus.textContent='';clearDataStatus.classList.remove('has-error');
+});
+clearDataButton.addEventListener('click',async()=>{
+  if(!clearDataConfirmed()||frontendPreview)return;
+  clearDataButton.disabled=true;clearDataInput.disabled=true;clearDataButton.setAttribute('aria-busy','true');
+  clearDataStatus.textContent='Clearing saved data...';clearDataStatus.classList.remove('has-error');
+  try{
+    const response=await fetch('/api/clear-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:'clear data'})});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.error||`Reset failed with HTTP ${response.status}`);
+    try{localStorage.removeItem('gridscope.value-recording.v1');}catch{}
+    clearDataInput.value='';lastChartKey='';lastEventsKey='';
+    renderState(result.state);
+    clearDataStatus.textContent=`Cleared ${result.deleted.samples} readings and ${result.deleted.events} events. Live recording restarted from zero.`;
+  }catch(error){
+    clearDataStatus.textContent=error.message;clearDataStatus.classList.add('has-error');
+  }finally{
+    clearDataInput.disabled=false;clearDataButton.removeAttribute('aria-busy');clearDataButton.disabled=!clearDataConfirmed();
+  }
+});
+if(frontendPreview){
+  clearDataInput.disabled=true;clearDataButton.disabled=true;
+  clearDataStatus.textContent='Data reset is available only from the local Python dashboard.';
+}
 const theme = Object.fromEntries(['line','muted','feed','a','b'].map(key=>[key,getComputedStyle(document.documentElement).getPropertyValue('--'+key).trim()]));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const isFresh = () => !!(latestState?.latest && ['CONNECTED','SIMULATION'].includes(latestState.connection) && (latestState.age_seconds || 0) + (performance.now()-receivedAt)/1000 < 4);

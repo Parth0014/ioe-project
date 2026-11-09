@@ -167,7 +167,7 @@ def create_app(repository=None, config=None):
     @app.get('/')
     @app.get('/analytics')
     def home():
-        return render_template('analytics.html', hosted=True, default_mode="LIVE")
+        return render_template('analytics.html', hosted=True)
 
     @app.get('/api/analytics')
     def analytics_api():
