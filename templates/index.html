@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dashboard · GridScope</title><link rel="icon" href="data:,">
 <link rel="stylesheet" href="/static/dashboard.css">
+<script src="/static/value-recorder.js" defer></script>
 <script src="/static/dashboard.js" defer></script>
 </head><body><a class="skip-link" href="#dashboard-heading">Skip to content</a>
 <div class="wrap">
@@ -44,6 +45,31 @@
 <div class="accuracy-note"></div>
 </aside>
 </div>
+<section class="value-recorder" aria-labelledby="value-recorder-heading">
+<div class="recorder-header">
+<div><p class="eyebrow">FIELD NOTES</p><h2 id="value-recorder-heading">Value recording</h2><p class="recorder-intro">Mark each physical bulb change and keep a timestamped trace of the readings.</p></div>
+<div class="recorder-actions"><span id="recorder-status" class="recorder-status" role="status" aria-live="polite">Not recording</span><button type="button" id="record-toggle" class="recorder-start">Start recording</button></div>
+</div>
+<div class="recorder-workspace">
+<div class="recorder-controls">
+<p class="recorder-label">Add a state marker</p>
+<div class="recorder-markers" role="group" aria-label="Physical bulb state markers">
+<button type="button" data-record-state="BOTH_OFF" aria-pressed="false" disabled>Both bulbs off</button>
+<button type="button" data-record-state="ZONE_A_ON" aria-pressed="false" disabled>Zone A on</button>
+<button type="button" data-record-state="ZONE_B_ON" aria-pressed="false" disabled>Zone B on</button>
+<button type="button" data-record-state="ALL_ZONES_ON" aria-pressed="false" disabled>All zones on</button>
+</div>
+<p class="recorder-hint" id="recorder-hint">Set the bulbs yourself; these buttons add notes and do not control the circuits. A reading is captured on each dashboard refresh. This browser keeps up to 4,000 recent entries.</p>
+<div class="recorder-footer"><span id="recorder-count">0 entries</span><details class="recorder-clear"><summary>Clear flow</summary><div class="recorder-clear__panel"><label for="recorder-clear-confirm">Type <code>clear data</code> to erase this browser's saved recording flow.</label><input id="recorder-clear-confirm" type="text" autocomplete="off" spellcheck="false" aria-describedby="recorder-clear-scope"><p id="recorder-clear-scope">This also stops recording. Your SQLite energy history is unchanged.</p><button type="button" id="recorder-clear-button" class="recorder-clear__button" hidden>Clear recording data</button><span id="recorder-clear-status" role="status" aria-live="polite"></span></div></details><button type="button" id="record-export" class="recorder-export" disabled>Export CSV</button></div>
+</div>
+<div class="recorder-flow-wrap">
+<div class="recorder-flow-heading"><h3>Recording flow</h3><span id="recorder-current-state">No state marked</span></div>
+<ol id="recorder-flow" class="recorder-flow" aria-label="Recording flow">
+<li class="recorder-empty">Start recording, then add a marker when you change a bulb.</li>
+</ol>
+</div>
+</div>
+</section>
 <div class="analytics-grid">
 <section class="panel trend-panel"><div class="panel-heading"><div><h2>Power over time</h2><p id="chart-range">Waiting for recorded samples</p></div><div class="legend"><span><i class="feed"></i>Total</span><span><i class="zone-a"></i>Zone A</span><span><i class="zone-b"></i>Zone B</span></div></div><div class="chart-wrap"><svg id="chart" viewBox="0 0 900 210" role="img" aria-label="Estimated power history in watts"></svg><p id="chart-empty">Your power history will appear as readings arrive.</p></div></section>
 <section class="panel split-panel"><div class="panel-heading"><div><h2>Where energy is used</h2><p>Recorded circuit energy</p></div><span class="tiny-tag">Wh</span></div><div class="split-content"><div class="energy-ring" id="energy-ring"><div><b id="split-total">—</b><span>circuit Wh</span></div></div><div class="split-readings"><div><span><i class="zone-a"></i>Zone A</span><b id="tA">—</b></div><div><span><i class="zone-b"></i>Zone B</span><b id="tB">—</b></div><div class="feeder-total"><span>Total monitored</span><b id="tT">—</b></div><p id="sTxt">Waiting for data</p></div></div></section>

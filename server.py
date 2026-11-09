@@ -226,7 +226,8 @@ class EnergyEngine:
             if self.mode == "DEMO":
                 connection = "SIMULATION" if live else "WAITING"
             else:
-                connection = "CONNECTED" if live else "DISCONNECTED"
+                connection = ("CONNECTED" if live else "WAITING"
+                              if self.connection_status == "WAITING_FOR_DATA" else "DISCONNECTED")
             with db_connection() as conn:
                 history = [dict(r) for r in conn.execute("""SELECT timestamp,main_w,branch_a_w,
                  branch_b_w,residual_ma FROM samples WHERE data_mode=? ORDER BY timestamp DESC LIMIT 120""", (self.mode,))]
@@ -289,8 +290,10 @@ def serial_reader(engine: EnergyEngine, port: str | None):
                            for x in ("ch340", "cp210", "usb serial", "usb-serial", "esp", "uart"))]
             dev = (scored or candidates)[0].device if candidates else None
         if not dev:
-            engine.connection_status = "DISCONNECTED"
-            engine.error = "No serial port detected. Connect the board with a USB data cable or choose --port COM5."
+            with engine.lock:
+                engine.port = None
+                engine.connection_status = "DISCONNECTED"
+                engine.error = "No serial port detected. Connect the board with a USB data cable or choose --port COM5."
             time.sleep(3)
             continue
         try:
@@ -301,6 +304,7 @@ def serial_reader(engine: EnergyEngine, port: str | None):
                     engine.connection_status = "WAITING_FOR_DATA"
                     engine.previous_power = None
                     engine.last_packet_mono = None
+                    engine.error = f"Serial port {dev} is open; waiting for DATA at 115200 baud."
                 while ser.is_open:
                     raw = ser.readline()
                     if not raw:

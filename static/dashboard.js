@@ -133,7 +133,7 @@ function updateActivity() {
 }
 
 function renderState(s,received=true) {
-  if(received){latestState=s;receivedAt=performance.now();}
+  if(received){latestState=s;receivedAt=performance.now();window.dispatchEvent(new CustomEvent('gridscope:telemetry',{detail:s}));}
   if(document.hidden)return;
   if(!$('debug-screen').hidden){renderDebug(s);return;}
   const r=s.latest||s.last_known,cfg=s.settings||{},totals=s.totals||{};

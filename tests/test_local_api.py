@@ -8,6 +8,21 @@ import server
 
 
 class LocalApiTests(unittest.TestCase):
+    def test_open_serial_port_without_packets_reports_waiting_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(server, 'DB', Path(directory)/'energy.sqlite3'), patch.object(server, 'CONFIG', Path(directory)/'config.json'), patch.dict('os.environ', {'MONGODB_URI': ''}):
+                engine = server.EnergyEngine('LIVE')
+                engine.port = 'COM5'
+                engine.connection_status = 'WAITING_FOR_DATA'
+                engine.error = 'Serial port COM5 is open; waiting for DATA at 115200 baud.'
+                try:
+                    response = server.create_app(engine).test_client().get('/api/dashboard')
+                    self.assertEqual(response.json['connection'], 'WAITING')
+                    self.assertIsNone(response.json['latest'])
+                    self.assertIn('COM5', response.json['error'])
+                finally:
+                    engine.cloud.close()
+
     def test_existing_totals_survive_and_local_apis_work_without_cloud(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(server, 'DB', Path(directory)/'energy.sqlite3'), patch.object(server, 'CONFIG', Path(directory)/'config.json'), patch.dict('os.environ', {'MONGODB_URI': ''}):
